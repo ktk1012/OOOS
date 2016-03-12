@@ -203,7 +203,6 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
-  enum intr_level old_level;
   struct thread *t = thread_current ();
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
@@ -216,7 +215,6 @@ lock_acquire (struct lock *lock)
   sema_down (&lock->semaphore);
 
   /* Add lock into thread's locks list */
-  old_level = intr_disable ();
   if (!thread_mlfqs)
   {
     list_push_back (&t->locks, &lock->elem);
@@ -224,8 +222,6 @@ lock_acquire (struct lock *lock)
   }
 
   lock->holder = t;
-
-  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
