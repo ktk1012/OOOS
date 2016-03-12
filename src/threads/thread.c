@@ -407,11 +407,9 @@ void
 thread_set_nice (int nice UNUSED) 
 {
   /* Not yet implemented. */
-  enum intr_level old_level = intr_disable ();
   thread_current ()->nice = nice;
   thread_mlfqs_priority_update (thread_current ());
   thread_yield_check ();
-  intr_set_level (old_level);
 }
 
 /* Returns the current thread's nice value. */
@@ -502,7 +500,6 @@ thread_mlfqs_refresh_all (void)
 void
 thread_update_load_avg (void)
 {
-  enum intr_level old_level = intr_disable ();
   size_t num_ready_threads = list_size (&ready_list);
   int temp1, temp2;
   if (thread_current () != idle_thread)
@@ -510,7 +507,6 @@ thread_update_load_avg (void)
   temp1 = FP_INT_DIV (FP_INT_MUL (load_avg, 59), 60);
   temp2 = FP_INT_DIV (INT_FP (num_ready_threads), 60);
   load_avg = FP_ADD (temp1, temp2);
-  intr_set_level (old_level);
 }
 
 /* Less function that determine which element has less priority */
