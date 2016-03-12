@@ -496,7 +496,7 @@ thread_mlfqs_refresh_all (void)
     t = list_entry (e, struct thread, allelem);
     if (t != idle_thread) {
       thread_update_recent_cpu (t);
-      thread_mlfqs_priority_update (t);
+      //thread_mlfqs_priority_update (t);
     }
   }  
 }

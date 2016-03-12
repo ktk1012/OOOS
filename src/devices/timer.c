@@ -153,15 +153,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
   bool is_preempt = false;
   thread_tick ();
 
-  /* Excute advanced scheduler */
-  if (thread_mlfqs) {
-    thread_current ()->recent_cpu = FP_INT_ADD (thread_current ()->recent_cpu, 1);
-    if (ticks % TIMER_FREQ == 0) {
-      thread_update_load_avg ();
-      thread_mlfqs_refresh_all ();
-    }
-  }
-
   while (!list_empty(&sleep_list)) {
     t = list_entry(list_begin(&sleep_list), struct thread, elem);
     if (t->ticks_wakeup > now) {
@@ -169,17 +160,22 @@ timer_interrupt (struct intr_frame *args UNUSED)
     } else {
       list_pop_front(&sleep_list);
       thread_unblock(t);
-      if (t->priority > thread_current ()->priority)
-        is_preempt = true;
     }
   }
  
-  /* 
-   * Check preemption of newly added threads,
-   * as it is in intr context, use intr_yield_on_return function 
-   */
-  //if (is_preempt)
-  //  intr_yield_on_return ();
+  /* Excute advanced scheduler */
+  if (thread_mlfqs) {
+    thread_current ()->recent_cpu = FP_INT_ADD (thread_current ()->recent_cpu, 1);
+    if (ticks % TIMER_FREQ == 0) {
+      thread_update_load_avg ();
+      thread_mlfqs_refresh_all ();
+    }
+    if (ticks % 4 == 0)
+      thread_mlfqs_priority_update (thread_current ());
+  }
+
+  if (is_preempt)
+    intr_yield_on_return ();
 
 }
 
