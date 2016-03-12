@@ -29,6 +29,8 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+static struct list all_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -98,6 +100,7 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
+  list_init (&all_list);
 
   load_avg = 0;
 
@@ -305,6 +308,7 @@ thread_exit (void)
   /* Just set our status to dying and schedule another process.
      We will be destroyed during the call to schedule_tail(). */
   intr_disable ();
+  list_remove (&thread_current ()->allelem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -486,15 +490,22 @@ thread_mlfqs_refresh_all (void)
 {
   struct thread *t;
   struct list_elem *e;
-  for (e = list_begin (&ready_list); e != list_end (&ready_list);
+  for (e = list_begin (&all_list); e != list_end (&all_list);
       e = list_next (e))
   {
-    t = list_entry (e, struct thread, elem);
+    t = list_entry (e, struct thread, allelem);
     if (t != idle_thread) {
       thread_update_recent_cpu (t);
       thread_mlfqs_priority_update (t);
     }
   }  
+}
+
+/* For test code */
+size_t
+thread_ready_size (void) 
+{
+  return list_size (&ready_list);
 }
 
 void
@@ -639,6 +650,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->lock_waiting = NULL;
   t->magic = THREAD_MAGIC;
   list_init (&t->locks);
+  list_push_back (&all_list, &t->allelem);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

@@ -7,6 +7,7 @@
 #include "threads/io.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/fixed_point.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -152,6 +153,15 @@ timer_interrupt (struct intr_frame *args UNUSED)
   bool is_preempt = false;
   thread_tick ();
 
+  /* Excute advanced scheduler */
+  if (thread_mlfqs) {
+    thread_current ()->recent_cpu = FP_INT_ADD (thread_current ()->recent_cpu, 1);
+    if (ticks % TIMER_FREQ == 0) {
+      thread_update_load_avg ();
+      thread_mlfqs_refresh_all ();
+    }
+  }
+
   while (!list_empty(&sleep_list)) {
     t = list_entry(list_begin(&sleep_list), struct thread, elem);
     if (t->ticks_wakeup > now) {
@@ -163,21 +173,13 @@ timer_interrupt (struct intr_frame *args UNUSED)
         is_preempt = true;
     }
   }
-   /* Excute advanced scheduler */
-  if (thread_mlfqs) {
-    thread_incr_recent_cpu ();
-    if (ticks % TIMER_FREQ == 0) {
-      thread_update_load_avg ();
-      thread_mlfqs_refresh_all ();
-    }
-  }
-
+ 
   /* 
    * Check preemption of newly added threads,
    * as it is in intr context, use intr_yield_on_return function 
    */
-  if (is_preempt)
-    intr_yield_on_return ();
+  //if (is_preempt)
+  //  intr_yield_on_return ();
 
 }
 

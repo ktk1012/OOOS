@@ -93,6 +93,8 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+    struct list_elem allelem;
+
     /* For synch */
     struct list locks;                  /* List of locks that thread holds */
     struct lock *lock_waiting;          /* Lock that thread waiting for */
