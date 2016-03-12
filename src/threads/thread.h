@@ -88,9 +88,20 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int priority_origin;                /* Original priority before donation */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
+    /* For synch */
+    struct list locks;                  /* List of locks that thread holds */
+    struct lock *lock_waiting;          /* Lock that thread waiting for */
+
+    int64_t ticks_wakeup;               /* Ticks when thread wake up */
+
+    /* Properties for advanced scheduler */
+    int nice;
+    int recent_cpu;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -132,5 +143,30 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void thread_incr_recent_cpu (void);
+void thread_update_recent_cpu (struct thread *t);
+void thread_mlfqs_priority_update (struct thread *t);
+void thread_mlfqs_refresh_all (void);
+void thread_update_load_avg (void);
+
+/* Test code */
+size_t thread_ready_size (void);
+
+void thread_donate_priority (void);
+void thread_donate_reset (struct lock *l);
+void thread_priority_update (void);
+
+/* Less function that checks which one has small ticks_wakeup */
+bool thread_less_ticks_wakeup (const struct list_elem* e1,
+                               const struct list_elem* e2,
+                               void *AUX UNUSED);
+
+/* Less function that checks which one has less priority */
+bool thread_less_priority (const struct list_elem* e1,
+                           const struct list_elem* e2,
+                           void *AUX UNUSED);
+void thread_yield_check (void);
+
 
 #endif /* threads/thread.h */
