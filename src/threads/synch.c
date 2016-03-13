@@ -127,7 +127,7 @@ sema_up (struct semaphore *sema)
     }
   sema->value++;
   if (!intr_context ())
-    thread_yield_check ();
+    thread_check_yield ();
   intr_set_level (old_level);
 }
 
@@ -167,6 +167,18 @@ sema_test_helper (void *sema_)
       sema_up (&sema[1]);
     }
 }
+
+/* Less function that compare semaphore's priority_max */
+bool sema_less_priority_max (const struct list_elem* e1,
+                             const struct list_elem* e2,
+                             void* AUX UNUSED)
+{
+  struct semaphore *s1 = &list_entry (e1, struct lock, elem)->semaphore;
+  struct semaphore *s2 = &list_entry (e2, struct lock, elem)->semaphore;
+  return s1->priority_max < s2->priority_max;
+}
+
+
 
 /* Initializes LOCK.  A lock can be held by at most a single
    thread at any given time.  Our locks are not "recursive", that
@@ -208,7 +220,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
   
-  if (lock->holder && !thread_mlfqs) {
+  if (!thread_mlfqs && lock->holder) {
     t->lock_waiting = lock;
     thread_donate_priority ();
   }
@@ -253,19 +265,14 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock) 
 {
-  enum intr_level old_level;
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  old_level = intr_disable ();
-
   if (!thread_mlfqs)
-    thread_donate_reset (lock);
+    thread_reset_donation (lock);
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
-
-  intr_set_level (old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -277,15 +284,6 @@ lock_held_by_current_thread (const struct lock *lock)
   ASSERT (lock != NULL);
 
   return lock->holder == thread_current ();
-}
-
-bool sema_less_priority_max (const struct list_elem* e1,
-                             const struct list_elem* e2,
-                             void* AUX UNUSED)
-{
-  struct semaphore *s1 = &list_entry (e1, struct lock, elem)->semaphore;
-  struct semaphore *s2 = &list_entry (e2, struct lock, elem)->semaphore;
-  return s1->priority_max < s2->priority_max;
 }
 
 

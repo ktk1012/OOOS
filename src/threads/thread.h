@@ -146,18 +146,24 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+/**************************************************************
+ * Newly added functions for project 1
+ **************************************************************/
+
+/* Additional functions for priority scheduling */
+void thread_donate_priority (void);
+void thread_reset_donation (struct lock *l);
+void thread_priority_update (void);
+
+/* Additional functions for advanced scheduling */
 void thread_incr_recent_cpu (void);
 void thread_update_recent_cpu (struct thread *t);
-void thread_mlfqs_priority_update (struct thread *t);
+void thread_mlfqs_update_priority (struct thread *t);
 void thread_mlfqs_refresh_all (void);
 void thread_update_load_avg (void);
 
-/* Test code */
-size_t thread_ready_size (void);
-
-void thread_donate_priority (void);
-void thread_donate_reset (struct lock *l);
-void thread_priority_update (void);
+/* Yield check */
+void thread_check_yield (void);
 
 /* Less function that checks which one has small ticks_wakeup */
 bool thread_less_ticks_wakeup (const struct list_elem* e1,
@@ -168,7 +174,7 @@ bool thread_less_ticks_wakeup (const struct list_elem* e1,
 bool thread_less_priority (const struct list_elem* e1,
                            const struct list_elem* e2,
                            void *AUX UNUSED);
-void thread_yield_check (void);
 
+/**************************************************************/
 
 #endif /* threads/thread.h */

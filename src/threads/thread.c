@@ -102,7 +102,6 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
 
-  load_avg = 0;
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -121,6 +120,8 @@ thread_start (void)
   sema_init (&idle_started, 0);
   thread_create ("idle", PRI_MIN, idle, &idle_started);
 
+  /* Initialize load_avg */
+  load_avg = 0;
   /* Start preemptive thread scheduling. */
   intr_enable ();
 
@@ -216,7 +217,7 @@ thread_create (const char *name, int priority,
 
   /* Check newly added thread has larger priority than current one.
    * If so, immediately yield */ 
-  thread_yield_check ();
+  thread_check_yield ();
 
   intr_set_level (old_level);
 
@@ -341,14 +342,13 @@ thread_set_priority (int new_priority)
   int priority_prev = t->priority;
   t->priority_origin = new_priority;
   thread_priority_update ();
-  if (priority_prev < t->priority) {
-    if (!thread_mlfqs)
-      thread_donate_priority ();
-  }
-  if (priority_prev > t->priority) {
-    thread_yield_check ();
-  }
-  ASSERT(t->priority >= PRI_MIN);
+  if (priority_prev < t->priority)
+    {
+      if (!thread_mlfqs)
+        thread_donate_priority ();
+    }
+  else if (priority_prev > t->priority)
+    thread_check_yield ();
   intr_set_level (old_level);
 }
 
@@ -356,10 +356,7 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-  enum intr_level old_level = intr_disable ();
-  int temp = thread_current ()->priority;
-  intr_set_level (old_level);
-  return temp;
+  return thread_current ()->priority;
 }
 
 /* Donate current thread's priority if it is waiting for lock */
@@ -368,28 +365,27 @@ thread_donate_priority (void) {
   struct thread *t = thread_current ();
   struct lock *l = t->lock_waiting;
   int donation_depth = 0;
-  while (l && donation_depth < DONATE_DEPTH_LIMIT) {
-    if (!l->holder)
-      break;
-    if (l->holder->priority >= t->priority)
-      break;
-    l->holder->priority = t->priority;
-    t = l->holder;
-    if (l->semaphore.priority_max < t->priority)
-      l->semaphore.priority_max = t->priority;
-    l = t->lock_waiting;
-    donation_depth ++;
-  }
+  while (l && donation_depth < DONATE_DEPTH_LIMIT) 
+    {
+      if (!l->holder)
+        break;
+      if (l->holder->priority >= t->priority)
+        break;
+      l->holder->priority = t->priority;
+      t = l->holder;
+      if (l->semaphore.priority_max < t->priority)
+        l->semaphore.priority_max = t->priority;
+      l = t->lock_waiting;
+      donation_depth ++;
+    }
 }
 
 /* Reset threads priority */
 void
-thread_donate_reset (struct lock *l)
+thread_reset_donation (struct lock *l)
 {
-  enum intr_level old_level = intr_disable ();
   list_remove (&l->elem);
   thread_priority_update ();
-  intr_set_level (old_level);
 }
   
 void
@@ -410,46 +406,39 @@ thread_priority_update (void) {
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  enum intr_level old_level = intr_disable ();
   thread_current ()->nice = nice;
-  thread_mlfqs_priority_update (thread_current ());
-  thread_yield_check ();
+  thread_mlfqs_update_priority (thread_current ());
+  thread_check_yield ();
+  intr_set_level (old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  enum intr_level old_level = intr_disable ();
-  int temp = thread_current ()->nice;
-  intr_set_level (old_level);
-  return temp;
+  return thread_current ()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  enum intr_level old_level = intr_disable ();
-  int temp = FP_INT_NEAR (FP_INT_MUL (load_avg, 100));
-  intr_set_level (old_level);
-  return temp;
+  return FP_INT_NEAR (FP_INT_MUL (load_avg, 100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  enum intr_level old_level = intr_disable ();
-  int temp = FP_INT_NEAR (FP_INT_MUL (thread_current ()->recent_cpu, 100));
-  intr_set_level (old_level);
-  return temp;
+  return FP_INT_NEAR (FP_INT_MUL (thread_current ()->recent_cpu, 100));
 }
 
-/* Update current thread's recent cpu, unless it is not idle */
+/* Increase current thread's recent cpu */
 void
 thread_incr_recent_cpu (void)
 {
+  ASSERT (thread_mlfqs);
   struct thread *t = thread_current ();
   if (t == idle_thread)
     return;
@@ -470,7 +459,7 @@ thread_update_recent_cpu (struct thread *t)
 }
 
 void
-thread_mlfqs_priority_update (struct thread *t)
+thread_mlfqs_update_priority (struct thread *t)
 {
   if (t == idle_thread)
     return;
@@ -496,7 +485,7 @@ thread_mlfqs_refresh_all (void)
     t = list_entry (e, struct thread, allelem);
     if (t != idle_thread) {
       thread_update_recent_cpu (t);
-      //thread_mlfqs_priority_update (t);
+      thread_mlfqs_update_priority (t);
     }
   }  
 }
@@ -541,7 +530,7 @@ bool thread_less_ticks_wakeup (const struct list_elem* e1,
   return t1->ticks_wakeup < t2->ticks_wakeup;
 }
 
-void thread_yield_check (void) 
+void thread_check_yield (void) 
 {
   struct thread *t1 = thread_current ();
   struct thread *t2;
