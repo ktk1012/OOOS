@@ -125,6 +125,12 @@ sema_up (struct semaphore *sema)
       list_remove (e);
       thread_unblock (list_entry (e, struct thread, elem));
     }
+  /* Update semaphores's max priority */
+  if (!list_empty (&sema->waiters))
+    {
+      e = list_max (&sema->waiters, thread_less_priority, NULL);
+      sema->priority_max = list_entry (e, struct thread, elem)->priority;
+    }
   sema->value++;
   if (!intr_context ())
     thread_check_yield ();
