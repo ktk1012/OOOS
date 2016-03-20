@@ -29,6 +29,9 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 
+/* Sleep list for threads */
+static struct list sleep_list;
+
 /* Sets up the 8254 Programmable Interval Timer (PIT) to
    interrupt PIT_FREQ times per second, and registers the
    corresponding interrupt. */
@@ -44,6 +47,8 @@ timer_init (void)
   outb (0x40, count >> 8);
 
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  /* Initialize sleep list */
+  list_init (&sleep_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -97,10 +102,15 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
-
+  struct thread *t = thread_current();
+  enum intr_level old_level;
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  old_level = intr_disable();
+  t->ticks_wakeup = start + ticks;
+  list_insert_ordered (&sleep_list, &t->elem, 
+                       thread_less_ticks_wakeup, NULL);
+  thread_block();
+  intr_set_level(old_level);
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -135,8 +145,43 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  struct thread *t;
   ticks++;
   thread_tick ();
+  int64_t now = timer_ticks();
+  bool is_preempt = false;
+  thread_tick ();
+
+  /* Wake up threads that ticks_wake up is less than ticks */
+  while (!list_empty(&sleep_list)) 
+    {
+      t = list_entry(list_begin(&sleep_list), struct thread, elem);
+      if (t->ticks_wakeup > now)
+        break;
+      else 
+        {
+          if (t->priority > thread_current ()->priority)
+            is_preempt = true;
+          list_pop_front(&sleep_list);
+          thread_unblock(t);
+        }
+    }
+ 
+  /* Excute advanced scheduler */
+  if (thread_mlfqs)
+    {
+      thread_incr_recent_cpu ();
+      if (ticks % TIMER_FREQ == 0) 
+        {
+          thread_update_load_avg ();
+          thread_mlfqs_refresh_all ();
+        }
+      if (ticks % 4 == 0)
+        thread_mlfqs_update_priority (thread_current ());
+    }
+  
+  if (is_preempt)
+    intr_yield_on_return ();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

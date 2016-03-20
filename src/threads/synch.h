@@ -3,12 +3,14 @@
 
 #include <list.h>
 #include <stdbool.h>
+#include <debug.h>
 
 /* A counting semaphore. */
 struct semaphore 
   {
     unsigned value;             /* Current value. */
     struct list waiters;        /* List of waiting threads. */
+    int priority_max;           /* Maximum priority value in list_waiters */
   };
 
 void sema_init (struct semaphore *, unsigned value);
@@ -16,12 +18,17 @@ void sema_down (struct semaphore *);
 bool sema_try_down (struct semaphore *);
 void sema_up (struct semaphore *);
 void sema_self_test (void);
+/* Less functions for max priority of semaphores */
+bool sema_less_priority_max (const struct list_elem* e1,
+                             const struct list_elem* e2,
+                             void* AUX UNUSED);
 
 /* Lock. */
 struct lock 
   {
     struct thread *holder;      /* Thread holding lock (for debugging). */
     struct semaphore semaphore; /* Binary semaphore controlling access. */
+    struct list_elem elem;      /* List element for locks in thread (see thread.h) */
   };
 
 void lock_init (struct lock *);
@@ -40,6 +47,11 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
+/* Less function that determine which semaphore has less maximum priority */
+bool cond_less_sema_priority (const struct list_elem* e1,
+                              const struct list_elem* e2,
+                              void* AUX UNUSED);
+
 
 /* Optimization barrier.
 
