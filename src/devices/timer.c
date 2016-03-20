@@ -153,32 +153,35 @@ timer_interrupt (struct intr_frame *args UNUSED)
   thread_tick ();
 
   /* Wake up threads that ticks_wake up is less than ticks */
-  while (!list_empty(&sleep_list)) {
-    t = list_entry(list_begin(&sleep_list), struct thread, elem);
-    if (t->ticks_wakeup > now) {
-      break;
-    } else {
-      if (t->priority > thread_current ()->priority)
-        is_preempt = true;
-      list_pop_front(&sleep_list);
-      thread_unblock(t);
+  while (!list_empty(&sleep_list)) 
+    {
+      t = list_entry(list_begin(&sleep_list), struct thread, elem);
+      if (t->ticks_wakeup > now)
+        break;
+      else 
+        {
+          if (t->priority > thread_current ()->priority)
+            is_preempt = true;
+          list_pop_front(&sleep_list);
+          thread_unblock(t);
+        }
     }
-  }
  
   /* Excute advanced scheduler */
-  if (thread_mlfqs) {
-    thread_incr_recent_cpu ();
-    if (ticks % TIMER_FREQ == 0) {
-      thread_update_load_avg ();
-      thread_mlfqs_refresh_all ();
+  if (thread_mlfqs)
+    {
+      thread_incr_recent_cpu ();
+      if (ticks % TIMER_FREQ == 0) 
+        {
+          thread_update_load_avg ();
+          thread_mlfqs_refresh_all ();
+        }
+      if (ticks % 4 == 0)
+        thread_mlfqs_update_priority (thread_current ());
     }
-    if (ticks % 4 == 0)
-      thread_mlfqs_update_priority (thread_current ());
-  }
-
+  
   if (is_preempt)
     intr_yield_on_return ();
-
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

@@ -132,8 +132,7 @@ sema_up (struct semaphore *sema)
       sema->priority_max = list_entry (e, struct thread, elem)->priority;
     }
   sema->value++;
-  if (!intr_context ())
-    thread_check_yield ();
+  thread_check_yield ();
   intr_set_level (old_level);
 }
 
@@ -226,19 +225,19 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
   
-  if (!thread_mlfqs && lock->holder) {
-    t->lock_waiting = lock;
-    thread_donate_priority ();
-  }
+  if (!thread_mlfqs && lock->holder)
+    {
+      t->lock_waiting = lock;
+      thread_donate_priority ();
+    }
   sema_down (&lock->semaphore);
 
   /* Add lock into thread's locks list */
   if (!thread_mlfqs)
-  {
-    list_push_back (&t->locks, &lock->elem);
-    t->lock_waiting = NULL;
-  }
-
+    {
+      list_push_back (&t->locks, &lock->elem);
+      t->lock_waiting = NULL;
+    }
   lock->holder = t;
 }
 

@@ -29,6 +29,11 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* List of all processes. Processes are added to this list
+ * when they are first scheduled and removed when they exit.
+ * In our original code, this list does not exist. But latest 
+ * version of pintos source code, all_list structure exists and
+ * I thought it is usefull in advanced scheduler so adopted it */
 static struct list all_list;
 
 /* Idle thread. */
@@ -480,14 +485,15 @@ thread_mlfqs_refresh_all (void)
   struct thread *t;
   struct list_elem *e;
   for (e = list_begin (&all_list); e != list_end (&all_list);
-      e = list_next (e))
-  {
-    t = list_entry (e, struct thread, allelem);
-    if (t != idle_thread) {
-      thread_update_recent_cpu (t);
-      thread_mlfqs_update_priority (t);
-    }
-  }  
+       e = list_next (e))
+    {
+      t = list_entry (e, struct thread, allelem);
+      if (t != idle_thread)
+        {
+          thread_update_recent_cpu (t);
+          thread_mlfqs_update_priority (t);
+        }
+    }  
 }
 
 /* For test code */
@@ -543,9 +549,8 @@ void thread_check_yield (void)
                    elem);
   if (list_empty (&ready_list)) 
     return;
-  if (t1->priority < t2->priority) {
+  if (t1->priority < t2->priority) 
     thread_yield ();
-  }
 }
 
 
