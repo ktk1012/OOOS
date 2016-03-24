@@ -72,8 +72,8 @@ sema_down (struct semaphore *sema)
   while (sema->value == 0) 
     {
       list_push_back (&sema->waiters, &t->elem);
-      if (sema->priority_max < t->priority)
-        sema->priority_max = t->priority;
+    /*  if (sema->priority_max < t->priority)
+        sema->priority_max = t->priority;*/
       thread_block ();
     }
   sema->value--;
@@ -225,7 +225,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
   
-  if (!thread_mlfqs && lock->holder)
+  if (!thread_mlfqs)
     {
       t->lock_waiting = lock;
       thread_donate_priority ();
@@ -365,9 +365,12 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
 
   if (!list_empty (&cond->waiters)) 
     {
+
+
       e = list_max (&cond->waiters, cond_less_sema_priority, NULL);
       list_remove (e);
       sema_up (&list_entry (e, struct semaphore_elem, elem)->semaphore);
+
     }
 }
 

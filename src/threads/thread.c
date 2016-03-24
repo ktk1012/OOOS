@@ -346,6 +346,8 @@ thread_set_priority (int new_priority)
   struct thread *t = thread_current ();
   int priority_prev = t->priority;
   t->priority_origin = new_priority;
+
+  //t->priority = new_priority;
   thread_priority_update ();
   if (priority_prev < t->priority)
     {
@@ -370,7 +372,7 @@ thread_donate_priority (void) {
   struct thread *t = thread_current ();
   struct lock *l = t->lock_waiting;
   int donation_depth = 0;
-  while (l && donation_depth < DONATE_DEPTH_LIMIT) 
+  while (l) 
     {
       if (!l->holder)
         break;
@@ -378,7 +380,7 @@ thread_donate_priority (void) {
         break;
       l->holder->priority = t->priority;
       t = l->holder;
-      if (l->semaphore.priority_max < t->priority)
+     if (l->semaphore.priority_max < t->priority)
         l->semaphore.priority_max = t->priority;
       l = t->lock_waiting;
       donation_depth ++;
