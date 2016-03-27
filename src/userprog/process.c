@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <list.h>
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -16,6 +17,7 @@
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
 #include "threads/vaddr.h"
 
 static thread_func start_process NO_RETURN;
@@ -30,6 +32,7 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
+  char *save_ptr;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -37,6 +40,9 @@ process_execute (const char *file_name)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
+
+  /* Parse file name */
+  file_name = strtok_r ((char *)file_name, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -54,7 +60,9 @@ start_process (void *f_name)
   struct intr_frame if_;
   bool success;
 
+  //file_name = strtok_r (file_name, " ", &args);
   /* Initialize interrupt frame and load executable. */
+
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
@@ -88,6 +96,10 @@ start_process (void *f_name)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  // For check argument passing does well (to be removed)
+  int i = 10000000;
+  while (i--) {}
+  // TODO: Implement process wait
   return -1;
 }
 
@@ -195,7 +207,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, void **arg_);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -214,6 +226,12 @@ load (const char *file_name, void (**eip) (void), void **esp)
   off_t file_ofs;
   bool success = false;
   int i;
+  char *save_ptr;
+  char *cmd;
+  void *args[2];
+  cmd = strtok_r ((char *)file_name, " ", &save_ptr);
+  args[0] = cmd;
+  args[1] = save_ptr;
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
@@ -302,7 +320,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, args))
     goto done;
 
   /* Start address. */
@@ -427,10 +445,26 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, void **arg_) 
 {
+  /****************   Memory layout   ***********************
+   *          PHYS_BASE -> **************
+   *          argv[][]     * 'string'   *
+   *          argv[][]     * 'string'   *
+   *          ....         * 'string'   *
+   *                       * 'string..' *
+   *      args_origin ->   * 'string..' *
+   * Word_align & sentinel *  0 0 0 0   *
+   *  And pushing argv & argc & fake return address ...
+   **********************************************************/
+
   uint8_t *kpage;
   bool success = false;
+  int i;                    /* arg_lenoral variable for for loop */
+  int argc = 0;             /* argc value */
+  size_t arg_len;           /* Length of each argument */            
+  char *token;              /* Parsed string token */
+  void *args_origin;        /* Origin point of argv pushing */
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
@@ -439,8 +473,55 @@ setup_stack (void **esp)
       if (success)
         *esp = PHYS_BASE;
       else
-        palloc_free_page (kpage);
+        {
+          palloc_free_page (kpage);
+          return success;
+        }
     }
+  for (token = (char *)arg_[0]; token != NULL;
+       token = strtok_r (NULL, " ", (char **)&arg_[1]))
+    {
+      arg_len = strlen (token) + 1;
+      *esp -= arg_len;
+      strlcpy ((char *) *esp, token, arg_len);
+      argc++;
+    }
+
+  args_origin = *esp;       /* Save starting point of argument strings */
+
+
+  /* Word alignment & Set null pointer sentinel */
+  i = ((size_t) *esp % 4);
+  *esp -= 4 + i;
+  memset (*esp, 0, 4 + i);
+
+  /* Push argv & free all argument elements */
+  for (i = 0; i < argc; i++)
+    {
+      arg_len = strlen ((char *) args_origin) + 1;
+      *esp -= 4;
+      memcpy (*esp, &args_origin, sizeof (char *));
+      args_origin += arg_len;
+    }
+
+  /* Push argv starting address */
+  memcpy (*esp - 4, esp, 4);
+  *esp -= 4;
+
+  /* Push argc */
+  *esp -= 4;
+  memcpy (*esp, &argc, sizeof (int));
+
+  /* Push fake return address */
+  *esp -= 4;
+  memset (*esp, 0, 4);
+
+  /* For debugging */
+  hex_dump ((uintptr_t)*esp, 
+            *esp, (int) ((size_t) PHYS_BASE - (size_t) *esp),
+            true);
+
+  /* Setup argument stack */
   return success;
 }
 
