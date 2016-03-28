@@ -496,6 +496,7 @@ thread_mlfqs_refresh_all (void)
     }  
 }
 
+
 /* For test code */
 size_t
 thread_ready_size (void) 
@@ -639,8 +640,16 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->priority_origin = priority;
-  t->nice = 0;
-  t->recent_cpu = 0;
+  if (t != initial_thread)
+    {
+      t->nice = thread_current ()->nice;
+      t->recent_cpu = thread_current ()->recent_cpu;
+    }
+  else 
+    {
+      t->nice = 0;
+      t->recent_cpu = 0;
+    }
   t->lock_waiting = NULL;
   t->magic = THREAD_MAGIC;
   list_init (&t->locks);
