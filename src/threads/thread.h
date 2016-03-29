@@ -159,7 +159,8 @@ void thread_priority_update (void);
 void thread_incr_recent_cpu (void);
 void thread_update_recent_cpu (struct thread *t);
 void thread_mlfqs_update_priority (struct thread *t);
-void thread_mlfqs_refresh_all (void);
+void thread_update_priority_all (void);
+void thread_update_recent_cpu_all (void);
 void thread_update_load_avg (void);
 
 /* Yield check */

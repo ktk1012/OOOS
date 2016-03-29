@@ -68,16 +68,14 @@ sema_down (struct semaphore *sema)
   ASSERT (sema != NULL);
   ASSERT (!intr_context ());
 
-  old_level = intr_disable ();
   while (sema->value == 0) 
     {
+      old_level = intr_disable ();
       list_push_back (&sema->waiters, &t->elem);
-    /*  if (sema->priority_max < t->priority)
-        sema->priority_max = t->priority;*/
       thread_block ();
+      intr_set_level (old_level);
     }
   sema->value--;
-  intr_set_level (old_level);
 }
 
 /* Down or "P" operation on a semaphore, but only if the
@@ -225,6 +223,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
   
+  /* Check priority donations when thread_mlfqs is not set */
   if (!thread_mlfqs)
     {
       t->lock_waiting = lock;
@@ -390,6 +389,7 @@ cond_broadcast (struct condition *cond, struct lock *lock)
     cond_signal (cond, lock);
 }
 
+/* Less function for semaphore_elem along each semaphore's maximum priority */
 bool
 cond_less_sema_priority (const struct list_elem* e1,
                          const struct list_elem* e2,
