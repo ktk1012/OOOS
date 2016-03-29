@@ -30,10 +30,7 @@
 static struct list ready_list;
 
 /* List of all processes. Processes are added to this list
- * when they are first scheduled and removed when they exit.
- * In our original code, this list does not exist. But latest 
- * version of pintos source code, all_list structure exists and
- * I thought it is usefull in advanced scheduler so adopted it */
+ * when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
 /* Idle thread. */
@@ -346,6 +343,8 @@ thread_set_priority (int new_priority)
   struct thread *t = thread_current ();
   int priority_prev = t->priority;
   t->priority_origin = new_priority;
+
+  //t->priority = new_priority;
   thread_priority_update ();
   if (priority_prev < t->priority)
     {
@@ -370,7 +369,7 @@ thread_donate_priority (void) {
   struct thread *t = thread_current ();
   struct lock *l = t->lock_waiting;
   int donation_depth = 0;
-  while (l && donation_depth < DONATE_DEPTH_LIMIT) 
+  while (l) 
     {
       if (!l->holder)
         break;
@@ -378,7 +377,7 @@ thread_donate_priority (void) {
         break;
       l->holder->priority = t->priority;
       t = l->holder;
-      if (l->semaphore.priority_max < t->priority)
+     if (l->semaphore.priority_max < t->priority)
         l->semaphore.priority_max = t->priority;
       l = t->lock_waiting;
       donation_depth ++;
@@ -393,6 +392,8 @@ thread_reset_donation (struct lock *l)
   thread_priority_update ();
 }
   
+/* Update current_thread's priority.
+ * Check locks that it holds and check their maximum priority and set */
 void
 thread_priority_update (void) {
   struct thread *t = thread_current ();
@@ -463,6 +464,7 @@ thread_update_recent_cpu (struct thread *t)
   t->recent_cpu = FP_INT_ADD (temp2, t->nice);
 }
 
+/* Update thread t's priority among advanced scheduler's rule */
 void
 thread_mlfqs_update_priority (struct thread *t)
 {
@@ -479,8 +481,10 @@ thread_mlfqs_update_priority (struct thread *t)
     t->priority = PRI_MIN;
 }
 
+/* For every thread in all_list, update it's priority using 
+ * thread_mlfqs_update_priority */
 void 
-thread_mlfqs_refresh_all (void) 
+thread_update_priority_all (void) 
 {
   struct thread *t;
   struct list_elem *e;
@@ -489,21 +493,26 @@ thread_mlfqs_refresh_all (void)
     {
       t = list_entry (e, struct thread, allelem);
       if (t != idle_thread)
-        {
-          thread_update_recent_cpu (t);
-          thread_mlfqs_update_priority (t);
-        }
+        thread_mlfqs_update_priority (t);
     }  
 }
 
-
-/* For test code */
-size_t
-thread_ready_size (void) 
+/* Update all threads recent cpu value using thread_update_recent_cpu */
+void
+thread_update_recent_cpu_all (void)
 {
-  return list_size (&ready_list);
+  struct thread *t;
+  struct list_elem *e;
+  for (e = list_begin (&all_list); e != list_end (&all_list);
+       e = list_next (e))
+    {
+      t = list_entry (e, struct thread, allelem);
+      if (t != idle_thread)
+        thread_update_recent_cpu (t);
+    }
 }
 
+/* Update load_avg */
 void
 thread_update_load_avg (void)
 {
@@ -537,6 +546,7 @@ bool thread_less_ticks_wakeup (const struct list_elem* e1,
   return t1->ticks_wakeup < t2->ticks_wakeup;
 }
 
+/* Check whether thread should yield or not */
 void thread_check_yield (void) 
 {
   struct thread *t1 = thread_current ();
@@ -642,10 +652,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->priority_origin = priority;
   if (t != initial_thread)
     {
+      /* Inherit nice and recent cpu unless it is initial thread */
       t->nice = thread_current ()->nice;
       t->recent_cpu = thread_current ()->recent_cpu;
     }
-  else 
+  else
     {
       t->nice = 0;
       t->recent_cpu = 0;

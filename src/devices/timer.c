@@ -157,7 +157,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
     {
       t = list_entry(list_begin(&sleep_list), struct thread, elem);
       if (t->ticks_wakeup > now)
-        break;
+        break;        /* Short circuiting the loop */
       else 
         {
           if (t->priority > thread_current ()->priority)
@@ -171,13 +171,14 @@ timer_interrupt (struct intr_frame *args UNUSED)
   if (thread_mlfqs)
     {
       thread_incr_recent_cpu ();
+      /* For each TIMER_FREQ refresh recent_cpu for every threads */
       if (ticks % TIMER_FREQ == 0) 
         {
           thread_update_load_avg ();
-          thread_mlfqs_refresh_all ();
+          thread_update_recent_cpu_all ();
         }
       if (ticks % 4 == 0)
-        thread_mlfqs_update_priority (thread_current ());
+        thread_update_priority_all ();
     }
   
   if (is_preempt)
