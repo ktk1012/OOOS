@@ -108,6 +108,11 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct file *excutable;
+    struct list files;                  /* Open files list */
+    struct list list_child;             /* child processes list */
+    int fd_next;                        /* Fd number that to be allocated */
+    //struct process_msg child_parent;    /* Informations between child and parent */
 #endif
 
     /* Owned by thread.c. */
@@ -135,7 +140,7 @@ struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
-void thread_exit (void) NO_RETURN;
+void thread_exit (int status) NO_RETURN;
 void thread_yield (void);
 
 int thread_get_priority (void);

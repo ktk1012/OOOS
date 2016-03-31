@@ -72,7 +72,7 @@ start_process (void *f_name)
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
-    thread_exit ();
+    thread_exit (-1);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -105,7 +105,7 @@ process_wait (tid_t child_tid UNUSED)
 
 /* Free the current process's resources. */
 void
-process_exit (void)
+process_exit (int status)
 {
   struct thread *curr = thread_current ();
   uint32_t *pd;
@@ -126,6 +126,7 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  printf ("%s: exit(%d)\n", curr->name, status);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -330,7 +331,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  if (success)
+    {
+      t->excutable = file;
+      file_deny_write (file);
+    }
+  else
+    file_close (file);
   return success;
 }
 
@@ -517,9 +524,9 @@ setup_stack (void **esp, void **arg_)
   memset (*esp, 0, 4);
 
   /* For debugging */
-  hex_dump ((uintptr_t)*esp, 
-            *esp, (int) ((size_t) PHYS_BASE - (size_t) *esp),
-            true);
+  //hex_dump ((uintptr_t)*esp, 
+  //          *esp, (int) ((size_t) PHYS_BASE - (size_t) *esp),
+  //          true);
 
   /* Setup argument stack */
   return success;
@@ -544,3 +551,61 @@ install_page (void *upage, void *kpage, bool writable)
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
+
+
+/*************** For supporting system calls ******************/
+
+/* Open file entry */
+struct fd_entry
+  {
+    struct file * file;
+    int fd;
+    struct list_elem elem;
+  };
+
+static struct fd_entry *get_fd_entry (int fd);
+
+static struct fd_entry * 
+get_fd_entry (int fd)
+{
+  struct list_elem *e;
+  struct thread *curr = thread_current ();
+  for (e = list_begin (&curr->files); e != list_end (&curr->files);
+       e = list_next (e))
+    {
+      struct fd_entry *fe = list_entry (e, struct fd_entry, elem);
+      if (fe->fd == fd)
+        return fe;
+    }
+  return NULL;
+}
+
+/*
+int process_create (const char *file, unsigned initial_size)
+{
+}
+
+int process_remove (const char *file)
+{
+}
+
+int process_open (const char *file)
+{
+}
+
+int process_file_size (int fd)
+{
+}
+
+int process_read (int fd, void *buffer, unsigned size)
+{
+}
+
+int process_write (int fd, void *buffer, unsigned size)
+{
+}
+
+int process_seek (int fd, unsigned position)
+{
+}
+*/
