@@ -33,6 +33,7 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
   char *save_ptr;
+  struct shared_status *st;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -43,6 +44,12 @@ process_execute (const char *file_name)
 
   /* Parse file name */
   file_name = strtok_r ((char *)file_name, " ", &save_ptr);
+  st = malloc (sizeof (struct shared_status));
+  st->parent = thread_tid ();
+  sema_init (&st->synch, 0);
+  st->exit_status = 0;
+  st->is_child_exit = false;
+  list_push_back (&thread_current ()->list_child, &st->elem);
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -103,6 +110,10 @@ process_wait (tid_t child_tid UNUSED)
   return -1;
 }
 
+/* Utility function that close all process's open files 
+ * See further belows for implementation */
+static void close_all_open_files (void);
+
 /* Free the current process's resources. */
 void
 process_exit (int status)
@@ -126,6 +137,7 @@ process_exit (int status)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
       file_close (curr->excutable);
+      close_all_open_files ();
     }
   printf ("%s: exit(%d)\n", curr->name, status);
 }
@@ -581,13 +593,33 @@ get_fd_entry (int fd)
   return NULL;
 }
 
+static void
+close_all_open_files (void)
+{
+  struct thread *curr = thread_current ();
+  struct fd_entry *fe;
+  if (list_empty (&curr->files))
+    return;
+
+  while (list_empty (&curr->files))
+    {
+      fe = list_entry (list_pop_front (&curr->files),
+                       struct fd_entry, elem);
+      file_close (fe->file);
+      free (fe);
+    }
+}
+
+
 
 int process_open (const char *file)
 {
   struct file *f = filesys_open (file);
   struct thread *curr = thread_current ();
-  if (file == NULL)
+  if (f == NULL)
+  {
     return -1;
+  }
   struct fd_entry *fe = malloc (sizeof (struct fd_entry));
   fe->file = f;
   fe->fd = curr->fd_next++;
@@ -651,3 +683,5 @@ int process_close (int fd)
   free (fe);
   return 0;
 }
+
+

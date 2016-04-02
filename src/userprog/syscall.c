@@ -35,22 +35,26 @@ static int syscall_create (struct intr_frame *f, int *status)
 {
   char *file = *(char **) (f->esp + 4);
   unsigned initial_size = *(unsigned *) (f->esp + 8);
-  if (file == NULL || strlen (file) > 14)
+  if (file == NULL)
     {
       *status = -1;
-      return -1;
+      return 0;
     }
+  if (strlen (file) > 14)
+    return 0;
   return filesys_create (file, initial_size);
 }
 
 static int syscall_remove (struct intr_frame *f, int *status)
 {
   char *file = *(char **) (f->esp + 4);
-  if (file == NULL || strlen (file) > 14)
+  if (file == NULL)
     {
       *status = -1;
-      return -1;
+      return 0;
     }
+  if (strlen (file) > 14)
+    return 0;
   return filesys_remove (file);
 }
 
@@ -63,11 +67,13 @@ static void syscall_exit (struct intr_frame *f)
 static int syscall_open (struct intr_frame *f, int *status)
 {
   char *file_name = *(char **) (f->esp + 4);
-  if (file_name == NULL || strlen (file_name) > 14)
+  if (file_name == NULL)
     {
       *status = -1;
       return -1;
     }
+  if (strlen (file_name) > 14)
+    return -1;
   return process_open (file_name);
 }
 
@@ -123,8 +129,6 @@ static int get_user (uint8_t *uaddr)
 static bool check_arguments (void *esp, int argc)
 {
   int i;
-  if (esp >= PHYS_BASE)
-      return false;
   for (i = 0; i < argc * 4; i++)
   {
     if (get_user ((uint8_t *) (esp + i)) == -1 || 
