@@ -125,6 +125,7 @@ process_exit (int status)
       curr->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
+      file_close (curr->excutable);
     }
   printf ("%s: exit(%d)\n", curr->name, status);
 }
@@ -580,32 +581,73 @@ get_fd_entry (int fd)
   return NULL;
 }
 
-/*
-int process_create (const char *file, unsigned initial_size)
-{
-}
-
-int process_remove (const char *file)
-{
-}
 
 int process_open (const char *file)
 {
+  struct file *f = filesys_open (file);
+  struct thread *curr = thread_current ();
+  if (file == NULL)
+    return -1;
+  struct fd_entry *fe = malloc (sizeof (struct fd_entry));
+  fe->file = f;
+  fe->fd = curr->fd_next++;
+  list_push_back (&curr->files, &fe->elem);
+  return fe->fd;
 }
 
-int process_file_size (int fd)
+int process_filesize (int fd)
 {
+  struct fd_entry *fe = get_fd_entry (fd);
+  if (fe == NULL)
+    return -1;
+  return file_length (fe->file);
 }
 
 int process_read (int fd, void *buffer, unsigned size)
 {
+  struct fd_entry *fe = get_fd_entry (fd);
+  if (fe == NULL)
+    return -1;
+  return file_read (fe->file, buffer, (off_t) size);
 }
 
 int process_write (int fd, void *buffer, unsigned size)
 {
+  if (fd == STDOUT_FILENO)
+    {
+      putbuf (buffer, size);
+      return size;
+    }
+  struct fd_entry *fe = get_fd_entry (fd);
+  if (fe == NULL)
+    return -1;
+  return file_write (fe->file, buffer, (off_t) size);
 }
 
 int process_seek (int fd, unsigned position)
 {
+  struct fd_entry *fe = get_fd_entry (fd);
+  if (fe == NULL)
+    return -1;
+  file_seek (fe->file, (off_t) position);  
+  return 0;
 }
-*/
+
+int process_tell (int fd)
+{
+  struct fd_entry *fe = get_fd_entry (fd);
+  if (fe == NULL)
+    return -1;
+  return file_tell (fe->file);
+}
+
+int process_close (int fd)
+{
+  struct fd_entry *fe = get_fd_entry (fd);
+  if (fe == NULL)
+    return -1;
+  file_close (fe->file);
+  list_remove (&fe->elem);
+  free (fe);
+  return 0;
+}
