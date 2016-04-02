@@ -123,11 +123,12 @@ static int get_user (uint8_t *uaddr)
 static bool check_arguments (void *esp, int argc)
 {
   int i;
-  if (!is_user_vaddr (esp))
-    return false;
-  for (i = 0; i < argc; i++)
+  if (esp >= PHYS_BASE)
+      return false;
+  for (i = 0; i < argc * 4; i++)
   {
-    if (get_user ((uint8_t *) (esp + i)) == -1)
+    if (get_user ((uint8_t *) (esp + i)) == -1 || 
+        !is_user_vaddr (esp + i))
       return false;
   }
   return true;
@@ -149,7 +150,6 @@ syscall_handler (struct intr_frame *f UNUSED)
     {
       thread_exit (-1);
     }
-  printf ("syscall: %x\n", (size_t) f->esp);
   switch (*(int *) f->esp)
     {
       case SYS_HALT:
@@ -180,7 +180,7 @@ syscall_handler (struct intr_frame *f UNUSED)
         if (!check_arguments (f->esp + 4, 1))
           goto bad_arg;
         lock_acquire (&filesys_lock);
-        result = syscall_create (f, &return_status);
+        result = syscall_remove (f, &return_status);
         lock_release (&filesys_lock);
         break;
 
@@ -210,9 +210,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 
       case SYS_WRITE:
         if (!check_arguments (f->esp + 4, 3))
-          {
             goto bad_arg;
-          }
         lock_acquire (&filesys_lock);
         result = syscall_write (f);
         lock_release (&filesys_lock);
@@ -248,6 +246,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   f->eax = result;
   return;
 bad_arg:
+  thread_exit (-1);
   return;
 }
 
