@@ -31,7 +31,6 @@ tid_t
 process_execute (const char *file_name) 
 {
   char *fn_copy;
-  //char *t_name;
   tid_t tid;
   char *save_ptr;
   bool is_child_loaded = true;
@@ -46,8 +45,6 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  /* Parse file name */
-  //file_name = strtok_r ((char *)file_name, " ", &save_ptr);
   st = malloc (sizeof (struct shared_status));
   st->parent = thread_tid ();
   sema_init (&st->synch, 0);
@@ -60,8 +57,10 @@ process_execute (const char *file_name)
   args[2] = (void *) &is_child_loaded;
 
 
-  /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create ("process", PRI_DEFAULT, start_process, (void *) args);
+  /* Create a new thread to execute FILE_NAME. 
+   * I set thread_name 'process' temporaly, It would set it's command name,
+   * after loaded */
+  tid = thread_create (fn_copy, PRI_DEFAULT, start_process, (void *) args);
   /* Wait for initialize child process */
   if (tid == TID_ERROR)
     {
@@ -70,7 +69,6 @@ process_execute (const char *file_name)
       palloc_free_page (fn_copy); 
     }
   sema_down (&st->synch);
-  //printf ("%s(%d) excute %s done\n", thread_name (), thread_tid (), file_name);
   st->child = tid;
   return is_child_loaded ? tid : -1;
 }

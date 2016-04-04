@@ -677,7 +677,7 @@ init_thread (struct thread *t, const char *name, int priority)
   /* Init child processes list initialization */
   list_init (&t->list_child);
   /* Set fd_next */
-  t->fd_next = 2;
+  t->fd_next = 3;
 #endif
   list_push_back (&all_list, &t->allelem);
 }

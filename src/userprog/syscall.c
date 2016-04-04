@@ -23,7 +23,13 @@ static bool check_str (char *arg, int size);
 static bool
 check_str (char *arg, int size)
 {
-  return check_arguments ((void *) arg, size);
+  char ch;
+  int i = 0;
+  while ((ch = get_user ((uint8_t *) (arg + i))) != -1 && ch != '\0'
+         && (++i < size));
+  if (ch == -1)
+    return false;
+  return true;
 }
 
 static bool
@@ -51,12 +57,7 @@ static int syscall_close (struct intr_frame *f);
 static int syscall_wait (struct intr_frame *f)
 {
   tid_t child_tid = *(tid_t *) (f->esp + 4);
-  //printf ("%s want to wait %d\n", thread_name (), child_tid);
-  lock_acquire (&exec_lock);
-  //printf ("wait: %d\n", child_tid);
   int result = process_wait (child_tid);
-  //printf ("wait done: %d\n", child_tid);
-  lock_release (&exec_lock);
   return result;
 }
 
@@ -68,12 +69,7 @@ static int syscall_exec (struct intr_frame *f)
     return -1;
   if (strlen (cmd) > PGSIZE)
     return -1;
-  lock_acquire (&exec_lock);
-  //printf ("%s execute %s\n", thread_name (), cmd);
   result = process_execute ((const char *) cmd);
-  //printf ("%s execute %s done\n", thread_name (), cmd);
-  lock_release (&exec_lock);
-  //printf ("%s released lock\n", thread_name ());
   return result;
 }
 
@@ -148,7 +144,7 @@ static int syscall_write (struct intr_frame *f, int *status)
   int fd = *(int *) (f->esp + 4);
   void *buf = *(void **) (f->esp + 8);
   unsigned size = *(unsigned *) (f->esp + 12);
-  if (!check_str ((uint8_t *)buf, size))
+  if (!check_buffer ((uint8_t *)buf, size))
     {
       *status = -1;
       return -1;
