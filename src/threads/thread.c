@@ -214,6 +214,12 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
 
+#ifdef USERPROG
+  /* Add shared_status to child process */
+  struct shared_status *st = ((struct shared_status **)aux)[1];
+  t->child_shared_status = st;
+#endif
+
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -671,7 +677,7 @@ init_thread (struct thread *t, const char *name, int priority)
   /* Init child processes list initialization */
   list_init (&t->list_child);
   /* Set fd_next */
-  t->fd_next = 2;
+  t->fd_next = 3;
 #endif
   list_push_back (&all_list, &t->allelem);
 }
