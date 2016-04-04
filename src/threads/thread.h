@@ -38,6 +38,7 @@ struct shared_status
     struct semaphore synch;
     int exit_status;
     bool is_child_exit;
+    bool is_parent_wait;
     struct list_elem elem;
   };
 #endif
@@ -202,5 +203,6 @@ bool thread_less_priority (const struct list_elem* e1,
                            void *AUX UNUSED);
 
 /**************************************************************/
+
 
 #endif /* threads/thread.h */

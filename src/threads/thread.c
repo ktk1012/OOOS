@@ -214,6 +214,12 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
 
+#ifdef USERPROG
+  /* Add shared_status to child process */
+  struct shared_status *st = ((struct shared_status **)aux)[1];
+  t->child_shared_status = st;
+#endif
+
   /* Add to run queue. */
   thread_unblock (t);
 

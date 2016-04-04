@@ -31,9 +31,13 @@ tid_t
 process_execute (const char *file_name) 
 {
   char *fn_copy;
+  //char *t_name;
   tid_t tid;
   char *save_ptr;
+  bool is_child_loaded = true;
   struct shared_status *st;
+  void *args[3];
+
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
@@ -43,19 +47,32 @@ process_execute (const char *file_name)
   strlcpy (fn_copy, file_name, PGSIZE);
 
   /* Parse file name */
-  file_name = strtok_r ((char *)file_name, " ", &save_ptr);
+  //file_name = strtok_r ((char *)file_name, " ", &save_ptr);
   st = malloc (sizeof (struct shared_status));
   st->parent = thread_tid ();
   sema_init (&st->synch, 0);
   st->exit_status = 0;
   st->is_child_exit = false;
+  st->is_parent_wait = false;
   list_push_back (&thread_current ()->list_child, &st->elem);
+  args[0] = (void *) fn_copy;
+  args[1] = (void *) st;
+  args[2] = (void *) &is_child_loaded;
+
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create ("process", PRI_DEFAULT, start_process, (void *) args);
+  /* Wait for initialize child process */
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
-  return tid;
+    {
+      list_remove (&st->elem);
+      free (st);
+      palloc_free_page (fn_copy); 
+    }
+  sema_down (&st->synch);
+  //printf ("%s(%d) excute %s done\n", thread_name (), thread_tid (), file_name);
+  st->child = tid;
+  return is_child_loaded ? tid : -1;
 }
 
 /* A thread function that loads a user process and makes it start
@@ -63,23 +80,31 @@ process_execute (const char *file_name)
 static void
 start_process (void *f_name)
 {
-  char *file_name = f_name;
+  char *file_name = ((char **)f_name)[0];
+  struct shared_status *st = ((struct shared_status **)f_name)[1];
+  bool *is_load_success = ((bool **)f_name)[2];
   struct intr_frame if_;
   bool success;
 
-  //file_name = strtok_r (file_name, " ", &args);
-  /* Initialize interrupt frame and load executable. */
-
+  
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
+  *is_load_success = success;
+  //printf ("process %s(%d) excuted by %d start\n", thread_name (),
+  //        thread_tid (), st->parent);
+  sema_up (&st->synch);
+  //printf ("process %s(%d) excuted by %d start done\n", thread_name (),
+  //        thread_tid (), st->parent);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) 
-    thread_exit (-1);
+    {
+      thread_exit (-1);
+    }
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -101,11 +126,41 @@ start_process (void *f_name)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
+  struct thread *curr = thread_current ();
+  struct shared_status *st = NULL;
+  struct list_elem *e;
+  int status;
+  for (e = list_begin (&curr->list_child); e != list_end (&curr->list_child);
+       e = list_next (e))
+    {
+      st = list_entry (e, struct shared_status, elem);
+      if (child_tid == st->child)
+        break;
+    }
+  if (st != NULL)
+    {
+      if (st->is_child_exit) 
+        {
+          status = st->exit_status;
+          list_remove (&st->elem);
+          free (st);
+          return status;
+        }
+      else 
+        {
+          st->is_parent_wait = true;
+          sema_down (&st->synch);
+          status = st->exit_status;
+          list_remove (&st->elem);
+          free (st);
+          return status;
+        }
+    }
   // For check argument passing does well (to be removed)
-  int i = 10000000;
-  while (i--) {}
+  //int i = 10000000;
+  //while (i--) {}
   // TODO: Implement process wait
   return -1;
 }
@@ -119,6 +174,7 @@ void
 process_exit (int status)
 {
   struct thread *curr = thread_current ();
+  struct shared_status *st = curr->child_shared_status;
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back
@@ -136,10 +192,22 @@ process_exit (int status)
       curr->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
+      /* Set shared_status field for wait synchronization */
+      if (st->is_parent_wait)
+        {
+          st->exit_status = status;
+          st->is_child_exit = true;
+          sema_up (&st->synch);
+        }
+      else
+        {
+          st->exit_status = status;
+          st->is_child_exit = true;
+        }
       file_close (curr->excutable);
       close_all_open_files ();
     }
-  printf ("%s: exit(%d)\n", curr->name, status);
+  printf ("%s: exit(%d)\n", thread_name (), status);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -344,6 +412,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
+  /* Set thread's name using (argv[0]) */
+  strlcpy (t->name, file_name, sizeof t->name);
+
   if (success)
     {
       t->excutable = file;
