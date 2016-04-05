@@ -62,13 +62,13 @@ process_execute (const char *file_name)
    * after loaded */
   tid = thread_create (fn_copy, PRI_DEFAULT, start_process, (void *) args);
   /* Wait for initialize child process */
+  sema_down (&st->synch);
   if (tid == TID_ERROR)
     {
       list_remove (&st->elem);
       free (st);
       palloc_free_page (fn_copy); 
     }
-  sema_down (&st->synch);
   st->child = tid;
   return is_child_loaded ? tid : -1;
 }
@@ -91,11 +91,7 @@ start_process (void *f_name)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
   *is_load_success = success;
-  //printf ("process %s(%d) excuted by %d start\n", thread_name (),
-  //        thread_tid (), st->parent);
   sema_up (&st->synch);
-  //printf ("process %s(%d) excuted by %d start done\n", thread_name (),
-  //        thread_tid (), st->parent);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -156,10 +152,6 @@ process_wait (tid_t child_tid)
           return status;
         }
     }
-  // For check argument passing does well (to be removed)
-  //int i = 10000000;
-  //while (i--) {}
-  // TODO: Implement process wait
   return -1;
 }
 
@@ -202,8 +194,8 @@ process_exit (int status)
           st->exit_status = status;
           st->is_child_exit = true;
         }
-      file_close (curr->excutable);
       close_all_open_files ();
+      file_close (curr->excutable);
     }
   printf ("%s: exit(%d)\n", thread_name (), status);
 }
@@ -667,10 +659,7 @@ close_all_open_files (void)
 {
   struct thread *curr = thread_current ();
   struct fd_entry *fe;
-  if (list_empty (&curr->files))
-    return;
-
-  while (list_empty (&curr->files))
+  while (!list_empty (&curr->files))
     {
       fe = list_entry (list_pop_front (&curr->files),
                        struct fd_entry, elem);
