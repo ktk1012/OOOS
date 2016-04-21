@@ -26,6 +26,12 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 #ifdef USERPROG
+enum parent_status
+  {
+    PARENT_RUNNING,
+    PARENT_WAITING,
+    PARENT_EXITED
+  };
 /* Status sharing between parent and child process.
  * It contains child's exit status and parent's tid,
  * and also it's own tid (tid_t child). In parent process,
@@ -38,7 +44,7 @@ struct shared_status
     struct semaphore synch;
     int exit_status;
     bool is_child_exit;
-    bool is_parent_wait;
+    enum parent_status p_status;
     struct list_elem elem;
   };
 #endif

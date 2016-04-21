@@ -32,7 +32,6 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
-  char *save_ptr;
   bool is_child_loaded = true;
   struct shared_status *st;
   void *args[3];
@@ -50,7 +49,7 @@ process_execute (const char *file_name)
   sema_init (&st->synch, 0);
   st->exit_status = 0;
   st->is_child_exit = false;
-  st->is_parent_wait = false;
+  st->p_status = PARENT_RUNNING;
   list_push_back (&thread_current ()->list_child, &st->elem);
   args[0] = (void *) fn_copy;
   args[1] = (void *) st;
@@ -144,7 +143,7 @@ process_wait (tid_t child_tid)
         }
       else 
         {
-          st->is_parent_wait = true;
+          st->p_status = PARENT_WAITING;
           sema_down (&st->synch);
           status = st->exit_status;
           list_remove (&st->elem);
@@ -157,7 +156,7 @@ process_wait (tid_t child_tid)
 
 /* Utility function that close all process's open files 
  * See further belows for implementation */
-static void close_all_open_files (void);
+static void clear_resources (void);
 
 /* Free the current process's resources. */
 void
@@ -183,18 +182,22 @@ process_exit (int status)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
       /* Set shared_status field for wait synchronization */
-      if (st->is_parent_wait)
+      if (st->p_status == PARENT_WAITING)
         {
           st->exit_status = status;
           st->is_child_exit = true;
           sema_up (&st->synch);
         }
-      else
+      else if (st->p_status == PARENT_RUNNING)
         {
           st->exit_status = status;
           st->is_child_exit = true;
         }
-      close_all_open_files ();
+      else 
+        {
+          free (st);
+        }
+      clear_resources ();
       file_close (curr->excutable);
     }
   printf ("%s: exit(%d)\n", thread_name (), status);
@@ -655,16 +658,24 @@ get_fd_entry (int fd)
 }
 
 static void
-close_all_open_files (void)
+clear_resources (void)
 {
   struct thread *curr = thread_current ();
   struct fd_entry *fe;
+  struct shared_status *st;
+  struct list_elem *e;
   while (!list_empty (&curr->files))
     {
       fe = list_entry (list_pop_front (&curr->files),
                        struct fd_entry, elem);
       file_close (fe->file);
       free (fe);
+    }
+  for (e = list_begin (&curr->list_child); e != list_end (&curr->list_child);
+       e = list_next (e))
+    {
+      st = list_entry (e, struct shared_status, elem);
+      st->p_status = PARENT_EXITED;
     }
 }
 
