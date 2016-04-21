@@ -214,6 +214,12 @@ thread_create (const char *name, int priority,
   sf = alloc_frame (t, sizeof *sf);
   sf->eip = switch_entry;
 
+#ifdef USERPROG
+  /* Add shared_status to child process */
+  struct shared_status *st = ((struct shared_status **)aux)[1];
+  t->child_shared_status = st;
+#endif
+
   /* Add to run queue. */
   thread_unblock (t);
 
@@ -300,12 +306,12 @@ thread_tid (void)
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void
-thread_exit (void) 
+thread_exit (int status) 
 {
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
-  process_exit ();
+  process_exit (status);
 #endif
 
   /* Just set our status to dying and schedule another process.
@@ -611,7 +617,7 @@ kernel_thread (thread_func *function, void *aux)
                     
   intr_enable ();       /* The scheduler runs with interrupts off. */
   function (aux);       /* Execute the thread function. */
-  thread_exit ();       /* If function() returns, kill the thread. */
+  thread_exit (0);       /* If function() returns, kill the thread. */
 }
 
 /* Returns the running thread. */
@@ -664,6 +670,15 @@ init_thread (struct thread *t, const char *name, int priority)
   t->lock_waiting = NULL;
   t->magic = THREAD_MAGIC;
   list_init (&t->locks);
+  /* Initial userprog process */
+#ifdef USERPROG
+  /* File entry list initialization */
+  list_init (&t->files);
+  /* Init child processes list initialization */
+  list_init (&t->list_child);
+  /* Set fd_next */
+  t->fd_next = 3;
+#endif
   list_push_back (&all_list, &t->allelem);
 }
 

@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,6 +24,31 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+
+#ifdef USERPROG
+enum parent_status
+  {
+    PARENT_RUNNING,
+    PARENT_WAITING,
+    PARENT_EXITED
+  };
+/* Status sharing between parent and child process.
+ * It contains child's exit status and parent's tid,
+ * and also it's own tid (tid_t child). In parent process,
+ * each child's shared status is contained in list childs,
+ * and child has it's pointer child_shared_status */
+struct shared_status
+  {
+    tid_t parent;
+    tid_t child;
+    struct semaphore synch;
+    int exit_status;
+    bool is_child_exit;
+    enum parent_status p_status;
+    struct list_elem elem;
+  };
+#endif
+
 
 /* A kernel thread or user process.
 
@@ -108,6 +134,12 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct file *excutable;
+    struct list files;                  /* Open files list */
+    struct list list_child;             /* child processes list */
+    struct shared_status *child_shared_status;
+    int fd_next;                        /* Fd number that to be allocated */
+    //struct process_msg child_parent;    /* Informations between child and parent */
 #endif
 
     /* Owned by thread.c. */
@@ -135,7 +167,7 @@ struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 
-void thread_exit (void) NO_RETURN;
+void thread_exit (int status) NO_RETURN;
 void thread_yield (void);
 
 int thread_get_priority (void);
@@ -177,5 +209,6 @@ bool thread_less_priority (const struct list_elem* e1,
                            void *AUX UNUSED);
 
 /**************************************************************/
+
 
 #endif /* threads/thread.h */
