@@ -672,11 +672,18 @@ clear_resources (void)
       file_close (fe->file);
       free (fe);
     }
-  for (e = list_begin (&curr->list_child); e != list_end (&curr->list_child);
-       e = list_next (e))
+  for (e = list_begin (&curr->list_child); e != list_end (&curr->list_child);)
     {
       st = list_entry (e, struct shared_status, elem);
-      st->p_status = PARENT_EXITED;
+      e = list_next (e);
+      if (st->is_child_exit)
+        {
+          free (st);
+        }
+      else 
+        {
+          st->p_status = PARENT_EXITED;
+        }
     }
 }
 
