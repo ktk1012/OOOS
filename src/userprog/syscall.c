@@ -12,7 +12,6 @@
 #include "filesys/filesys.h"
 
 static struct lock filesys_lock;
-static struct lock exec_lock;
 
 static void syscall_handler (struct intr_frame *);
 static int get_user (uint8_t *uaddr);
@@ -196,7 +195,6 @@ syscall_init (void)
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init (&filesys_lock);
-  lock_init (&exec_lock);
 }
 
 static void
