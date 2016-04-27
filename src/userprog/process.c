@@ -19,6 +19,7 @@
 #include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
+#include "devices/input.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -706,6 +707,20 @@ int process_filesize (int fd)
 
 int process_read (int fd, void *buffer, unsigned size)
 {
+  if (fd == STDIN_FILENO)
+    {
+      uint8_t c;
+      unsigned cnt = size;
+      uint8_t *buf = buffer;
+      while (cnt > 1 && (c = input_getc ()) != 0)
+        {
+          *buf = c;
+          buffer++;
+          cnt--;
+        }
+      *buf = 0;
+      return size - cnt;
+    }
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
