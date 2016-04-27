@@ -19,6 +19,7 @@
 #include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
+#include "devices/input.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -671,11 +672,18 @@ clear_resources (void)
       file_close (fe->file);
       free (fe);
     }
-  for (e = list_begin (&curr->list_child); e != list_end (&curr->list_child);
-       e = list_next (e))
+  for (e = list_begin (&curr->list_child); e != list_end (&curr->list_child);)
     {
       st = list_entry (e, struct shared_status, elem);
-      st->p_status = PARENT_EXITED;
+      e = list_next (e);
+      if (st->is_child_exit)
+        {
+          free (st);
+        }
+      else 
+        {
+          st->p_status = PARENT_EXITED;
+        }
     }
 }
 
@@ -706,6 +714,20 @@ int process_filesize (int fd)
 
 int process_read (int fd, void *buffer, unsigned size)
 {
+  if (fd == STDIN_FILENO)
+    {
+      uint8_t c;
+      unsigned cnt = size;
+      uint8_t *buf = buffer;
+      while (cnt > 1 && (c = input_getc ()) != 0)
+        {
+          *buf = c;
+          buffer++;
+          cnt--;
+        }
+      *buf = 0;
+      return size - cnt;
+    }
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
