@@ -3,6 +3,7 @@
 
 #include <debug.h>
 #include <list.h>
+#include <hash.h>
 #include <stdint.h>
 #include "threads/synch.h"
 
@@ -141,6 +142,12 @@ struct thread
     int fd_next;                        /* Fd number that to be allocated */
     //struct process_msg child_parent;    /* Informations between child and parent */
 #endif
+
+    /* For supplemental page table */
+    struct hash page_table;
+    struct lock page_lock;
+
+    void *esp;                          /* For saving esp value in system call */
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

@@ -220,6 +220,10 @@ thread_create (const char *name, int priority,
   t->child_shared_status = st;
 #endif
 
+#ifdef VM
+	t->esp = NULL;
+#endif
+
   /* Add to run queue. */
   thread_unblock (t);
 
