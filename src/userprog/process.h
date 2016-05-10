@@ -16,4 +16,7 @@ int process_seek (int fd, unsigned position);
 int process_tell (int fd);
 int process_close (int fd);
 
+/* Load helpers */
+bool install_page (void *upage, void *kpage, bool writable);
+
 #endif /* userprog/process.h */

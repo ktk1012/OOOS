@@ -206,6 +206,8 @@ syscall_handler (struct intr_frame *f UNUSED)
     {
       thread_exit (-1);
     }
+
+  thread_current ()->esp = f->esp;
   switch (*(int *) f->esp)
     {
       case SYS_HALT:
@@ -303,6 +305,8 @@ syscall_handler (struct intr_frame *f UNUSED)
         break;
 
     }
+
+  thread_current ()->esp = NULL;
   if (return_status == -1)
     thread_exit (-1);
   f->eax = result;
