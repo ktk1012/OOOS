@@ -6,75 +6,133 @@
 
 #include <stdio.h>
 
-static struct lock vm_frame_lock;
+static struct lock vm_frame_lock; /* Lock for synch vm system */
 
-// static void page_destroy_action (struct hash_elem *e, void *aux UNUSED);
+
+/* Internal function for swap in */
 static bool vm_swap_in (struct page_entry *spte);
 
 
+/**
+ * \vm_init
+ * \Initialize frame table and swap table.
+ *
+ * \param void
+ *
+ * \retval void
+ */
 void
 vm_init (void)
 {
+	/* Init frame lock and call frame_init and swap_init in
+	 * frame.c and swap.c, respectively */
 	lock_init (&vm_frame_lock);
 	frame_init ();
 	swap_init ();
 }
 
+
+/**
+ * \vm_load
+ * \Handles page fault in various cases
+ *
+ * \param fault_addr  address that fault occurred
+ * \param esp  stack pointer for determine stack growth
+ *
+ * \retval  true if page fault is properly handled.
+ * \retval  false otherwise.
+ */
 bool
 vm_load (void *fault_addr, void *esp)
 {
+	/* Find user page address from fault addr */
 	void *upage = pg_round_down (fault_addr);
 	void *kpage = NULL;
 
+	/* Find supplenetal page entry for determining fault case */
 	struct thread *curr = thread_current ();
 	lock_acquire (&curr->page_lock);
 	struct page_entry *spte = page_get_entry (&curr->page_table, upage);
 	lock_release (&curr->page_lock);
+
+	/* If there is virtual page, handle */
 	if (spte)
 	{
 		switch (spte->type)
 		{
 			case MEM:
+				/* Impossible case */
 				break;
 			case DISK:
+				/* If data is swapped out, swap in */
 				return vm_swap_in (spte);
 			case FILE:
+				/* Not yet implemented */
 				break;
 		}
+		/* Properly handled */
 		return true;
 	}
 	else
 	{
+		/* If fault address is below the stack pointer, determine
+		 * whether fault is stack growth or not */
 		if (fault_addr >= esp - 32)
 		{
+			/* If fault addr is above the esp - 32 (WORD), it is stack growth */
 			kpage = vm_get_page (PAL_USER | PAL_ZERO, upage);
 			if (kpage == NULL)
 				return false;
-			return vm_install_page (upage, kpage, true, false, PAL_USER | PAL_ZERO, MEM);
+
+			/* Install grown stack page to page table */
+			return vm_install_page (upage, kpage, true, PAL_USER | PAL_ZERO, MEM);
 		}
-		else
+		else    /* It is not proper case, return false to page fault handler */
 			return false;
 	}
 }
 
 
+/**
+ * \vm_init_page
+ * \Init supplemental page table for user process
+ *
+ * \param void
+ *
+ * \retval void
+ */
 void
 vm_init_page (void)
 {
 	page_init_page ();
 }
 
+
+/**
+ * \vm_get_page
+ * \Get physical page and map with virtual page address
+ *
+ * \param flags palloc flag
+ * \param vaddr virtual page address
+ *
+ * \retval address of physical page
+ * \retval NULL if allocation failed
+ */
 void *
 vm_get_page (enum palloc_flags flags, void *vaddr)
 {
+
+	/* If not User page allocation request, return NULL */
 	if (!(flags & PAL_USER))
 		return NULL;
 
 	lock_acquire (&vm_frame_lock);
+	/* Get page from user pool */
 	void *paddr = palloc_get_page (flags);
 
 	if (paddr != NULL)
 	{
+		/* If allocation available, add it to frame table and return */
 		if (!frame_add_page (paddr, vaddr))
 		{
 			palloc_free_page (paddr);
@@ -86,18 +144,34 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 	}
 	else
 	{
+		/* palloc is not available, eviction occurs */
+		/* Find entry to be evicted */
 		struct frame_entry *fe = frame_evict ();
+
+		/* Write to swap disk */
 		size_t swap_idx = swap_write (fe->paddr);
+
+		/* Get supplemental page table and set type to DISK (SWAPPED) */
 		lock_acquire (&fe->owner->page_lock);
 		struct page_entry *spte = page_get_entry (&fe->owner->page_table, fe->vaddr);
 		spte->block_idx = swap_idx;
 		spte->is_loaded = false;
 		spte->type = DISK;
+
+		/* Clear page table entry (set present bit invalid */
 		pagedir_clear_page (fe->owner->pagedir, fe->vaddr);
 		lock_release (&fe->owner->page_lock);
+
+		/* Free page */
 		palloc_free_page (fe->paddr);
+
+		/* Remove frame entry corresponding to paddr */
 		frame_free_page (fe);
+
+		/* Re allocate for request */
 		paddr = palloc_get_page (flags);
+
+		/* Add it to frame table */
 		if (!frame_add_page (paddr, vaddr))
 		{
 			palloc_free_page (paddr);
@@ -106,44 +180,86 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 		}
 		lock_release (&vm_frame_lock);
 		return paddr;
-		// PANIC ("eviction will be implemented\n");
 	}
 }
 
-bool vm_install_page (void *upage, void *kpage, bool writable, bool lazy,
+
+/**
+ * \vm_install_page
+ * \Simple wrapper for page_install_page
+ *
+ * \param  same as page_install_page (refer page.c)
+ *
+ * \reval  same as page_install_page (refer page.c too)
+ */
+bool vm_install_page (void *upage, void *kpage, bool writable,
                       enum palloc_flags flags, enum page_type type)
 {
-	return page_install_page (upage, kpage, writable, lazy, flags, type);
+	return page_install_page (upage, kpage, writable, flags, type);
 }
 
 
+/**
+ * \vm_free_page
+ * \Free allocated page
+ *
+ * \param paddr physical page
+ *
+ * \retval void
+ */
 void
 vm_free_page (void *paddr)
 {
 	lock_acquire (&vm_frame_lock);
+	/* Find frame entry corresponding to paddr */
 	struct frame_entry *fe = frame_get_entry (paddr);
 	if (fe == NULL)
 	{
 		lock_release (&vm_frame_lock);
 		return;
 	}
+
+	/* Find supplemental page entry and remove it from table */
+	lock_acquire (&fe->owner->page_lock);
 	struct page_entry *spte = page_get_entry (&fe->owner->page_table, fe->vaddr);
 	page_delete_entry (&fe->owner->page_table, spte);
+	lock_release (&fe->owner->page_lock);
+
+	/* Remove frame entry and free physical page */
 	palloc_free_page (fe->paddr);
 	frame_free_page (fe);
 	lock_release (&vm_frame_lock);
 }
 
+
+/**
+ * \internal
+ *
+ * \vm_swap_in
+ * \Swap data into corresponding process's user page
+ *
+ * \param spte  supplemental page entry for swap in
+ *
+ * \retval true if swap in success
+ * \retval false otherwise
+ */
 static bool vm_swap_in (struct page_entry *spte)
 {
+	/* Allocate physical page */
 	void *paddr = vm_get_page (spte->flags, spte->vaddr);
 	struct frame_entry *fe = frame_get_entry (paddr);
+
+	/* If allocation fail, return false */
 	if (paddr == NULL)
 		return false;
 
+	/* Read data from swap disk */
 	lock_acquire (&fe->owner->page_lock);
 	swap_read (spte->block_idx, paddr);
+	/* Now data is loaded in memory, so set is_loaded to true */
 	spte->is_loaded = true;
+
+	/* Enable page entry corresponding to virtual page address */
 	if (!pagedir_set_page (fe->owner->pagedir, spte->vaddr, paddr, spte->writable))
 	{
 		lock_release (&fe->owner->page_lock);
@@ -154,6 +270,15 @@ static bool vm_swap_in (struct page_entry *spte)
 	return true;
 }
 
+
+/**
+ * \vm_destroy_page_table
+ * \Destroy supplemental page table
+ *
+ * \param table supplemental page table to be destroyed
+ *
+ * \retval void
+ */
 void
 vm_destroy_page_table (struct hash *table)
 {

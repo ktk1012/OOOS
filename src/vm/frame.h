@@ -4,12 +4,19 @@
 #include <list.h>
 #include "threads/thread.h"
 
+/**
+ * \frame entry
+ * \Entry for frame table hash & evict table
+ *
+ */
 struct frame_entry
 {
-	struct thread *owner;
-	void *paddr;
-	void *vaddr;
-	struct hash_elem elem_hash;
+	struct thread *owner;       /* Owner of this physical frame */
+	void *paddr;                /* Kernel virtual address (a.k.a physical address) */
+	void *vaddr;                /* User virtual address (a.k.a virtual address) */
+	struct hash_elem elem_hash; /* Hash element for frame hash table */
+
+	/* list element for list that implement fifo clock algorithm */
 	struct list_elem elem_list;
 };
 

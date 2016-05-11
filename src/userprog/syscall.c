@@ -207,6 +207,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       thread_exit (-1);
     }
 
+  /* Save esp context for check stack growth */
   thread_current ()->esp = f->esp;
   switch (*(int *) f->esp)
     {
@@ -306,6 +307,7 @@ syscall_handler (struct intr_frame *f UNUSED)
 
     }
 
+  /* Reset esp context */
   thread_current ()->esp = NULL;
   if (return_status == -1)
     thread_exit (-1);
