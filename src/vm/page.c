@@ -1,9 +1,13 @@
+#include <string.h>
 #include "page.h"
 #include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
+#include "userprog/syscall.h"
+
+#include <stdio.h>
 
 
 static unsigned page_hash (const struct hash_elem *e, void *aux UNUSED);
@@ -11,7 +15,6 @@ static bool page_hash_less (const struct hash_elem *_a,
                             const struct hash_elem *_b,
                             void *aux UNUSED);
 static void page_destroy_action (struct hash_elem *e, void *aux UNUSED);
-
 
 void
 page_init_page (void)
@@ -65,6 +68,37 @@ page_delete_entry (struct hash *table, struct page_entry *spte)
 void page_destroy_table (struct hash *table)
 {
 	hash_destroy (table, page_destroy_action);
+}
+
+bool page_load_lazy (struct hash *table, struct file *file, off_t ofs,
+                     void *vaddr, uint32_t read_bytes, uint32_t zero_bytes,
+                     bool writable)
+{
+	struct page_entry *spte = malloc (sizeof (struct page_entry));
+	if (spte == NULL)
+		return false;
+	spte->vaddr = vaddr;
+	spte->type = FILE;
+	spte->is_loaded = false;
+	spte->flags = PAL_USER;
+	spte->file = file;
+	spte->ofs = ofs;
+	spte->read_bytes = read_bytes;
+	spte->zero_bytes = zero_bytes;
+	spte->writable = writable;
+	hash_insert (table, &spte->elem);
+	return true;
+}
+
+bool page_load_demand (struct page_entry *spte, void *paddr)
+{
+	if (file_read_at (spte->file, paddr, spte->read_bytes, spte->ofs)
+	    != (int) spte->read_bytes)
+		return false;
+
+	memset (paddr + spte->read_bytes, 0, spte->zero_bytes);
+	spte->is_loaded = true;
+	return install_page (spte->vaddr, paddr, spte->writable);
 }
 
 

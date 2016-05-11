@@ -10,6 +10,7 @@ static struct lock vm_frame_lock;
 
 // static void page_destroy_action (struct hash_elem *e, void *aux UNUSED);
 static bool vm_swap_in (struct page_entry *spte);
+static bool vm_load_demand (struct page_entry *spte);
 
 
 void
@@ -39,7 +40,7 @@ vm_load (void *fault_addr, void *esp)
 			case DISK:
 				return vm_swap_in (spte);
 			case FILE:
-				break;
+				return vm_load_demand (spte);
 		}
 		return true;
 	}
@@ -87,16 +88,24 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 	else
 	{
 		struct frame_entry *fe = frame_evict ();
-		size_t swap_idx = swap_write (fe->paddr);
+
 		lock_acquire (&fe->owner->page_lock);
+
 		struct page_entry *spte = page_get_entry (&fe->owner->page_table, fe->vaddr);
-		spte->block_idx = swap_idx;
+
+		if (spte->type != FILE ||
+				pagedir_is_dirty (fe->owner->pagedir, fe->vaddr))
+		{
+			size_t swap_idx = swap_write (fe->paddr);
+			spte->block_idx = swap_idx;
+			spte->type = DISK;
+		}
 		spte->is_loaded = false;
-		spte->type = DISK;
 		pagedir_clear_page (fe->owner->pagedir, fe->vaddr);
 		lock_release (&fe->owner->page_lock);
 		palloc_free_page (fe->paddr);
 		frame_free_page (fe);
+
 		paddr = palloc_get_page (flags);
 		if (!frame_add_page (paddr, vaddr))
 		{
@@ -134,7 +143,29 @@ vm_free_page (void *paddr)
 	lock_release (&vm_frame_lock);
 }
 
-static bool vm_swap_in (struct page_entry *spte)
+
+void
+vm_destroy_page_table (struct hash *table)
+{
+	lock_acquire (&vm_frame_lock);
+	page_destroy_table (table);
+	lock_release (&vm_frame_lock);
+}
+
+bool
+vm_load_lazy (struct file *file, off_t ofs, void *vaddr,
+              uint32_t read_bytes, uint32_t zero_bytes, bool writable)
+{
+	struct thread *curr = thread_current ();
+	lock_acquire (&curr->page_lock);
+	bool result = page_load_lazy (&curr->page_table, file, ofs, vaddr,
+																read_bytes, zero_bytes, writable);
+	lock_release (&curr->page_lock);
+	return result;
+}
+
+static bool
+vm_swap_in (struct page_entry *spte)
 {
 	void *paddr = vm_get_page (spte->flags, spte->vaddr);
 	struct frame_entry *fe = frame_get_entry (paddr);
@@ -154,10 +185,22 @@ static bool vm_swap_in (struct page_entry *spte)
 	return true;
 }
 
-void
-vm_destroy_page_table (struct hash *table)
+static bool
+vm_load_demand (struct page_entry *spte)
 {
-	lock_acquire (&vm_frame_lock);
-	page_destroy_table (table);
-	lock_release (&vm_frame_lock);
+	void *paddr = vm_get_page (spte->flags, spte->vaddr);
+	if (paddr == NULL)
+		return false;
+
+	struct thread *curr = thread_current ();
+	lock_acquire (&curr->page_lock);
+
+	if (!page_load_demand (spte, paddr))
+	{
+		vm_free_page (paddr);
+		lock_release (&curr->page_lock);
+		return false;
+	}
+	lock_release (&curr->page_lock);
+	return true;
 }

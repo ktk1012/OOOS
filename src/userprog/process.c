@@ -25,6 +25,9 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+/* Get filesys lock from thread.c */
+struct lock filesys_lock;
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -502,28 +505,36 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      uint8_t *kpage = vm_get_page (PAL_USER, upage);
+      /* uint8_t *kpage = vm_get_page (PAL_USER, upage);
       if (kpage == NULL)
         return false;
-
+      */
       /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+      /* if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
         {
           vm_free_page (kpage);
           return false; 
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
+      */
 
       /* Add the page to the process's address space. */
-      if (!vm_install_page (upage, kpage, writable, false, PAL_USER, FILE))
+      /* if (!vm_install_page (upage, kpage, writable, false, PAL_USER, FILE))
         {
           vm_free_page (kpage);
           return false; 
         }
+        */
+
+      // printf ("load lazy %d, %d, %p\n", page_read_bytes, page_zero_bytes, upage);
+      if (!vm_load_lazy (file, ofs, upage, page_read_bytes, page_zero_bytes, writable)) {
+        return false;
+      }
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
+      ofs += page_read_bytes;
       upage += PGSIZE;
     }
   return true;
@@ -712,6 +723,7 @@ int process_filesize (int fd)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
+
   return file_length (fe->file);
 }
 
@@ -755,7 +767,7 @@ int process_seek (int fd, unsigned position)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
-  file_seek (fe->file, (off_t) position);  
+  file_seek (fe->file, (off_t) position);
   return 0;
 }
 

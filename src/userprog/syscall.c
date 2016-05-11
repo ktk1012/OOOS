@@ -34,7 +34,7 @@ check_str (char *arg, int size)
 static bool
 check_buffer (void *buf, int size)
 {
-  return check_arguments ((uint8_t *) buf, 1) 
+  return check_arguments ((uint8_t *) buf, 1)
          && check_arguments ((uint8_t *)buf + size, 1);
 }
 

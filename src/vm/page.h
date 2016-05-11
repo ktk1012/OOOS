@@ -4,6 +4,8 @@
 #include "threads/palloc.h"
 #include "vm/frame.h"
 #include "vm/swap.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 
 enum page_type
 {
@@ -25,6 +27,12 @@ struct page_entry
 	/* For swapped item */
 	size_t block_idx;
 
+	/* For lazy loading for file */
+	struct file *file;
+	off_t ofs;
+	uint32_t read_bytes;
+	uint32_t zero_bytes;
+
 	struct hash_elem elem;
 };
 
@@ -35,5 +43,11 @@ struct page_entry *page_get_entry (struct hash *table, void *vaddr);
 void page_delete_entry (struct hash *table, struct page_entry *spte);
 
 void page_destroy_table (struct hash *table);
+
+bool page_load_lazy (struct hash *table, struct file *file, off_t ofs,
+                     void *vaddr, uint32_t read_bytes, uint32_t zero_bytes,
+                     bool writable);
+
+bool page_load_demand (struct page_entry *spte, void *paddr);
 
 #endif //VM_PAGE_H

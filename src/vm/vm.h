@@ -18,4 +18,6 @@ bool vm_install_page (void *upage, void *kpage, bool writable, bool lazy,
 
 void vm_destroy_page_table (struct hash *table);
 
+bool vm_load_lazy (struct file *file, off_t ofs, void *vaddr,
+								   uint32_t read_bytes, uint32_t zero_bytes, bool writable);
 #endif //VM_VM_H
