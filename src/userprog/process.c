@@ -518,15 +518,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
       */
 
-      /* Add the page to the process's address space. */
-      /* if (!vm_install_page (upage, kpage, writable, false, PAL_USER, FILE))
-        {
-          vm_free_page (kpage);
-          return false; 
-        }
-        */
-
-      // printf ("load lazy %d, %d, %p\n", page_read_bytes, page_zero_bytes, upage);
       if (!vm_load_lazy (file, ofs, upage, page_read_bytes, page_zero_bytes, writable)) {
         return false;
       }
@@ -567,7 +558,7 @@ setup_stack (void **esp, void **arg_)
   kpage = vm_get_page (PAL_USER | PAL_ZERO, PHYS_BASE - PGSIZE);
   if (kpage != NULL) 
     {
-      success = vm_install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true, false,
+      success = vm_install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true,
                                  PAL_USER | PAL_ZERO, MEM);
       if (success)
         *esp = PHYS_BASE;
@@ -789,5 +780,4 @@ int process_close (int fd)
   free (fe);
   return 0;
 }
-
 

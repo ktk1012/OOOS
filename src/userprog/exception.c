@@ -157,6 +157,7 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
+  /* Load data in fault address, if failed kill process */
   if (not_present && vm_load (fault_addr, esp_ctx))
   {
     return;
