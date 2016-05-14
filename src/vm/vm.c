@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 static struct lock vm_frame_lock; /* Lock for synch vm system */
+static struct lock vm_mmap_lock;
 
 
 /* Internal function for swap in */
@@ -31,6 +32,7 @@ vm_init (void)
 	/* Init frame lock and call frame_init and swap_init in
 	 * frame.c and swap.c, respectively */
 	lock_init (&vm_frame_lock);
+	lock_init (&vm_mmap_lock);
 	frame_init ();
 	swap_init ();
 }
@@ -354,6 +356,7 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 	struct mmap_entry *me = malloc (sizeof (struct mmap_entry));
 	if (me == NULL)
 		return NULL;
+	// lock_acquire (&vm_mmap_lock);
 	lock_acquire (&curr->page_lock);
 	/* Initialize mmap entry */
 	me->file = file;
@@ -401,6 +404,7 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 		return NULL;
 	}
 	list_push_back (&curr->mmap_list, &me->elem);
+	// lock_release (&vm_mmap_lock);
 	lock_release (&curr->page_lock);
 
 	me->mid = curr->mapid_next++;
@@ -413,6 +417,7 @@ vm_munmap (struct mmap_entry *me)
 {
 	struct thread *curr = thread_current ();
 	struct page_entry *spte;
+	lock_acquire (&vm_mmap_lock);
 	while (!list_empty (&me->map_list))
 	{
 		spte = list_entry (list_pop_front (&me->map_list),
@@ -420,24 +425,14 @@ vm_munmap (struct mmap_entry *me)
 										   elem_mmap);
 		if (spte->is_loaded)
 		{
-			// lock_acquire (&curr->page_lock);
 			void *paddr = pagedir_get_page (curr->pagedir, spte->vaddr);
-			// lock_release (&curr->page_lock);
-			// lock_acquire (&vm_frame_lock);
 			struct frame_entry *fe = frame_get_entry (paddr);
-			// lock_release (&vm_frame_lock);
-			// lock_acquire (&curr->page_lock);
 			if (pagedir_is_dirty (curr->pagedir, spte->vaddr))
 				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
-			// lock_release (&curr->page_lock);
 			vm_free_page (paddr);
 		}
 		else
-		{
-			// lock_acquire (&curr->page_lock);
 			page_delete_entry (&curr->page_table, spte);
-			// lock_release (&curr->page_lock);
-		}
 	}
 	if (list_empty (&me->fd_list))
 		file_close (me->file);
@@ -448,5 +443,6 @@ vm_munmap (struct mmap_entry *me)
 																											elem_mmap);
 		fe->is_mmaped = false;
 	}
+	lock_release (&vm_mmap_lock);
 	return;
 }

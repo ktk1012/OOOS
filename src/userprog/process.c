@@ -25,8 +25,9 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-/* Get filesys lock from thread.c */
+struct lock exit_lock;
 struct lock filesys_lock;
+
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -169,6 +170,7 @@ static void clear_resources (void);
 void
 process_exit (int status)
 {
+  lock_acquire (&exit_lock);
   struct thread *curr = thread_current ();
   struct shared_status *st = curr->child_shared_status;
   uint32_t *pd;
@@ -208,6 +210,7 @@ process_exit (int status)
         }
       file_close (curr->excutable);
     }
+  lock_release (&exit_lock);
   printf ("%s: exit(%d)\n", thread_name (), status);
 }
 
