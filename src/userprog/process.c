@@ -710,7 +710,6 @@ int process_open (const char *file)
   struct fd_entry *fe = malloc (sizeof (struct fd_entry));
   fe->file = f;
   fe->fd = curr->fd_next++;
-  fe->is_mmaped = false;
   list_push_back (&curr->files, &fe->elem);
   return fe->fd;
 }
@@ -781,10 +780,6 @@ int process_close (int fd)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
-  if (fe->is_mmaped)
-    list_remove (&fe->elem_mmap);
-  else
-    file_close (fe->file);
   list_remove (&fe->elem);
   free (fe);
   return 0;
@@ -818,15 +813,14 @@ int process_mmap (int fd, void *addr)
   if (file_size == 0)
     return MAP_FAILED;
 
-  struct mmap_entry *me = vm_add_mmap (fe->file, addr, file_size);
+  /* Reopen the file */
+  struct file *file = file_reopen (fe->file);
+
+  struct mmap_entry *me = vm_add_mmap (file, addr, file_size);
   if (me == NULL)
     return MAP_FAILED;
   else
-  {
-    fe->is_mmaped = true;
-    list_push_back(&me->fd_list, &fe->elem_mmap);
     return me->mid;
-  }
 }
 
 int process_munmap (mapid_t mid)
@@ -834,7 +828,9 @@ int process_munmap (mapid_t mid)
   struct mmap_entry *me = get_mmap_entry (mid);
   if (me == NULL)
     return -1;
+  struct file *file = me->file;
   vm_munmap (me);
+  file_close (file);
   list_remove (&me->elem);
   free (me);
   return 0;

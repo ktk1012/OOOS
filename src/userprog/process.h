@@ -10,8 +10,6 @@ struct fd_entry
     struct file * file;
     int fd;
     struct list_elem elem;
-    bool is_mmaped;              /* Indicates mmapped or not */
-    struct list_elem elem_mmap;  /* Element in mmap entry */
   };
 
 tid_t process_execute (const char *file_name);

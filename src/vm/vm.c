@@ -434,15 +434,6 @@ vm_munmap (struct mmap_entry *me)
 		else
 			page_delete_entry (&curr->page_table, spte);
 	}
-	if (list_empty (&me->fd_list))
-		file_close (me->file);
-	else
-	{
-		struct fd_entry *fe = list_entry (list_pop_front (&me->fd_list),
-		                                                  struct fd_entry,
-																											elem_mmap);
-		fe->is_mmaped = false;
-	}
 	lock_release (&vm_mmap_lock);
 	return;
 }
