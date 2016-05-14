@@ -1,6 +1,9 @@
 #include <hash.h>
+#include <list.h>
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
+#include "userprog/process.h"
 #include "userprog/pagedir.h"
 #include "vm/vm.h"
 
@@ -68,6 +71,7 @@ vm_load (void *fault_addr, void *esp)
 				/* If data is swapped out, swap in */
 				return vm_swap_in (spte);
 			case FILE:
+			case MMAP:
 				return vm_load_demand (spte);
 		}
 		/* Properly handled */
@@ -152,13 +156,29 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 
 		struct page_entry *spte = page_get_entry (&fe->owner->page_table, fe->vaddr);
 
-		if (spte->type != FILE ||
+		if (spte->type == MMAP)
+		{
+			if (pagedir_is_dirty(fe->owner->pagedir, fe->vaddr))
+				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
+		}
+		else if (spte->type != FILE ||
 				pagedir_is_dirty (fe->owner->pagedir, fe->vaddr))
 		{
 			size_t swap_idx = swap_write (fe->paddr);
 			spte->block_idx = swap_idx;
 			spte->type = DISK;
 		}
+		/*if (pagedir_is_dirty (fe->owner->pagedir, fe->vaddr))
+		{
+			if (spte->type == MMAP)
+				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
+			else
+			{
+				size_t swap_idx = swap_write (fe->paddr);
+				spte->block_idx = swap_idx;
+				spte->type = DISK;
+			}
+		}*/
 		spte->is_loaded = false;
 		/* Clear page table entry (set present bit invalid */
 		pagedir_clear_page (fe->owner->pagedir, fe->vaddr);
@@ -257,10 +277,11 @@ vm_load_lazy (struct file *file, off_t ofs, void *vaddr,
 {
 	struct thread *curr = thread_current ();
 	lock_acquire (&curr->page_lock);
-	bool result = page_load_lazy (&curr->page_table, file, ofs, vaddr,
-																read_bytes, zero_bytes, writable);
+	struct page_entry *result = page_load_lazy (&curr->page_table, file, ofs,
+	                                            vaddr, read_bytes, zero_bytes,
+	                                            writable, FILE);
 	lock_release (&curr->page_lock);
-	return result;
+	return result != NULL ? true : false;
 }
 
 
@@ -322,4 +343,110 @@ vm_load_demand (struct page_entry *spte)
 	}
 	lock_release (&curr->page_lock);
 	return true;
+}
+
+
+struct mmap_entry *
+vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
+{
+	struct thread *curr = thread_current ();
+	struct hash *sup_pt = &curr->page_table;
+	struct mmap_entry *me = malloc (sizeof (struct mmap_entry));
+	if (me == NULL)
+		return NULL;
+	lock_acquire (&curr->page_lock);
+	/* Initialize mmap entry */
+	me->file = file;
+	list_init (&me->map_list);
+	list_init (&me->fd_list);
+
+	bool ret = true;
+	// return ret;
+	off_t ofs = 0;
+	while (file_size > 0)
+	{
+		size_t read_bytes = file_size < PGSIZE ? file_size : PGSIZE;
+		size_t zero_bytes = PGSIZE - read_bytes;
+
+		if (page_get_entry (sup_pt, start_addr))
+		{
+			ret = false;
+			break;
+		}
+
+		/* Add supplemental page entry */
+		struct page_entry *temp = page_load_lazy (sup_pt, file, ofs, start_addr,
+																						  read_bytes, zero_bytes, true,
+																							MMAP);
+		if (temp == NULL)
+		{
+			ret = false;
+			break;
+		}
+		list_push_back (&me->map_list, &temp->elem_mmap);
+
+		file_size -= read_bytes;
+		ofs += read_bytes;
+		start_addr += PGSIZE;
+	}
+
+	if (ret == false)
+	{
+		struct list_elem *e;
+		for (e = list_begin (&me->map_list); e != list_end (&me->map_list);
+			   e = list_next (e))
+			page_delete_entry (sup_pt,
+			                   list_entry (e, struct page_entry, elem_mmap));
+		free (me);
+		return NULL;
+	}
+	list_push_back (&curr->mmap_list, &me->elem);
+	lock_release (&curr->page_lock);
+
+	me->mid = curr->mapid_next++;
+	return me;
+}
+
+
+void
+vm_munmap (struct mmap_entry *me)
+{
+	struct thread *curr = thread_current ();
+	struct page_entry *spte;
+	while (!list_empty (&me->map_list))
+	{
+		spte = list_entry (list_pop_front (&me->map_list),
+											 struct page_entry,
+										   elem_mmap);
+		if (spte->is_loaded)
+		{
+			// lock_acquire (&curr->page_lock);
+			void *paddr = pagedir_get_page (curr->pagedir, spte->vaddr);
+			// lock_release (&curr->page_lock);
+			// lock_acquire (&vm_frame_lock);
+			struct frame_entry *fe = frame_get_entry (paddr);
+			// lock_release (&vm_frame_lock);
+			// lock_acquire (&curr->page_lock);
+			if (pagedir_is_dirty (curr->pagedir, spte->vaddr))
+				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
+			// lock_release (&curr->page_lock);
+			vm_free_page (paddr);
+		}
+		else
+		{
+			// lock_acquire (&curr->page_lock);
+			page_delete_entry (&curr->page_table, spte);
+			// lock_release (&curr->page_lock);
+		}
+	}
+	if (list_empty (&me->fd_list))
+		file_close (me->file);
+	else
+	{
+		struct fd_entry *fe = list_entry (list_pop_front (&me->fd_list),
+		                                                  struct fd_entry,
+																											elem_mmap);
+		fe->is_mmaped = false;
+	}
+	return;
 }

@@ -1,6 +1,7 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <string.h>
+#include <user/syscall.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/synch.h"
@@ -51,6 +52,8 @@ static int syscall_write (struct intr_frame *f, int *status);
 static int syscall_seek (struct intr_frame *f);
 static int syscall_tell (struct intr_frame *f);
 static int syscall_close (struct intr_frame *f);
+static int syscall_mmap (struct intr_frame *f);
+static int syscall_munmap (struct intr_frame *f);
 /***************************************************/
 
 static int syscall_wait (struct intr_frame *f)
@@ -168,6 +171,19 @@ static int syscall_close (struct intr_frame *f)
 {
   int fd = *(int *) (f->esp + 4);
   return process_close (fd);
+}
+
+static int syscall_mmap (struct intr_frame *f)
+{
+  int fd = *(int *) (f->esp + 4);
+  void *addr = *(void **) (f->esp + 8);
+  return process_mmap (fd, addr);
+}
+
+static int syscall_munmap (struct intr_frame *f)
+{
+  mapid_t mid = *(mapid_t *) (f->esp + 4);
+  return process_munmap (mid);
 }
 
 static int get_user (uint8_t *uaddr)
@@ -302,6 +318,22 @@ syscall_handler (struct intr_frame *f UNUSED)
           goto bad_arg;
         lock_acquire (&filesys_lock);
         result = syscall_close (f);
+        lock_release (&filesys_lock);
+        break;
+
+      case SYS_MMAP:
+        if (!check_arguments (f->esp + 4, 8))
+          goto bad_arg;
+        lock_acquire (&filesys_lock);
+        result = syscall_mmap (f);
+        lock_release (&filesys_lock);
+        break;
+
+      case SYS_MUNMAP:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        lock_acquire (&filesys_lock);
+        result = syscall_munmap (f);
         lock_release (&filesys_lock);
         break;
 

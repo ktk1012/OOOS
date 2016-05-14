@@ -176,6 +176,7 @@ process_exit (int status)
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = curr->pagedir;
+  clear_resources ();
   vm_destroy_page_table (&curr->page_table);
   if (pd != NULL) 
     {
@@ -205,7 +206,6 @@ process_exit (int status)
         {
           free (st);
         }
-      clear_resources ();
       file_close (curr->excutable);
     }
   printf ("%s: exit(%d)\n", thread_name (), status);
@@ -637,16 +637,8 @@ install_page (void *upage, void *kpage, bool writable)
 
 
 /*************** For supporting system calls ******************/
-
-/* Open file entry */
-struct fd_entry
-  {
-    struct file * file;
-    int fd;
-    struct list_elem elem;
-  };
-
 static struct fd_entry *get_fd_entry (int fd);
+static struct mmap_entry *get_mmap_entry (mapid_t mid);
 
 static struct fd_entry * 
 get_fd_entry (int fd)
@@ -670,26 +662,36 @@ clear_resources (void)
   struct fd_entry *fe;
   struct shared_status *st;
   struct list_elem *e;
+  struct mmap_entry *me;
+  while (!list_empty (&curr->mmap_list))
+  {
+    e = list_front (&curr->mmap_list);
+    me = list_entry (e, struct mmap_entry, elem);
+    vm_munmap (me);
+    list_remove (e);
+    free (me);
+  }
   while (!list_empty (&curr->files))
-    {
-      fe = list_entry (list_pop_front (&curr->files),
-                       struct fd_entry, elem);
-      file_close (fe->file);
-      free (fe);
-    }
+  {
+    fe = list_entry (list_pop_front (&curr->files),
+                     struct fd_entry, elem);
+    file_close (fe->file);
+    free (fe);
+  }
+
   for (e = list_begin (&curr->list_child); e != list_end (&curr->list_child);)
+  {
+    st = list_entry (e, struct shared_status, elem);
+    e = list_next (e);
+    if (st->is_child_exit)
     {
-      st = list_entry (e, struct shared_status, elem);
-      e = list_next (e);
-      if (st->is_child_exit)
-        {
-          free (st);
-        }
-      else 
-        {
-          st->p_status = PARENT_EXITED;
-        }
+      free (st);
     }
+    else
+    {
+      st->p_status = PARENT_EXITED;
+    }
+  }
 }
 
 
@@ -705,6 +707,7 @@ int process_open (const char *file)
   struct fd_entry *fe = malloc (sizeof (struct fd_entry));
   fe->file = f;
   fe->fd = curr->fd_next++;
+  fe->is_mmaped = false;
   list_push_back (&curr->files, &fe->elem);
   return fe->fd;
 }
@@ -775,9 +778,62 @@ int process_close (int fd)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
-  file_close (fe->file);
+  if (fe->is_mmaped)
+    list_remove (&fe->elem_mmap);
+  else
+    file_close (fe->file);
   list_remove (&fe->elem);
   free (fe);
+  return 0;
+}
+
+static struct mmap_entry *
+get_mmap_entry (mapid_t mid)
+{
+  struct list_elem *e;
+  struct thread *curr = thread_current ();
+  for (e = list_begin (&curr->mmap_list); e != list_end (&curr->mmap_list);
+       e = list_next (e))
+  {
+    struct mmap_entry *me = list_entry (e, struct mmap_entry, elem);
+    if (me->mid == mid)
+      return me;
+  }
+  return NULL;
+}
+
+int process_mmap (int fd, void *addr)
+{
+  if (addr == NULL || pg_ofs (addr))
+    return MAP_FAILED;
+
+  struct fd_entry *fe = get_fd_entry (fd);
+  if (fe == NULL)
+    return MAP_FAILED;
+
+  size_t file_size = file_length (fe->file);
+  if (file_size == 0)
+    return MAP_FAILED;
+
+  struct mmap_entry *me = vm_add_mmap (fe->file, addr, file_size);
+  if (me == NULL)
+    return MAP_FAILED;
+  else
+  {
+    fe->is_mmaped = true;
+    list_push_back(&me->fd_list, &fe->elem_mmap);
+    return me->mid;
+  }
+}
+
+int process_munmap (mapid_t mid)
+{
+  struct mmap_entry *me = get_mmap_entry (mid);
+  if (me == NULL)
+    return -1;
+  vm_munmap (me);
+  list_remove (&me->elem);
+  free (me);
   return 0;
 }
 

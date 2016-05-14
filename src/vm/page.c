@@ -1,11 +1,14 @@
 #include <string.h>
 #include "page.h"
 #include "threads/thread.h"
+#include "threads/palloc.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
 #include "userprog/process.h"
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
+
+#include <stdio.h>
 
 
 /* Hash function for hash data structures
@@ -139,20 +142,22 @@ page_delete_entry (struct hash *table, struct page_entry *spte)
  *
  * \retval void
  */
-void page_destroy_table (struct hash *table)
+void
+page_destroy_table (struct hash *table)
 {
 	hash_destroy (table, page_destroy_action);
 }
 
-bool page_load_lazy (struct hash *table, struct file *file, off_t ofs,
-                     void *vaddr, uint32_t read_bytes, uint32_t zero_bytes,
-                     bool writable)
+struct page_entry *
+page_load_lazy (struct hash *table, struct file *file, off_t ofs,
+                void *vaddr, uint32_t read_bytes, uint32_t zero_bytes,
+                bool writable, enum page_type type)
 {
 	struct page_entry *spte = malloc (sizeof (struct page_entry));
 	if (spte == NULL)
-		return false;
+		return NULL;
 	spte->vaddr = vaddr;
-	spte->type = FILE;
+	spte->type = type;
 	spte->is_loaded = false;
 	spte->flags = PAL_USER;
 	spte->file = file;
@@ -161,10 +166,11 @@ bool page_load_lazy (struct hash *table, struct file *file, off_t ofs,
 	spte->zero_bytes = zero_bytes;
 	spte->writable = writable;
 	hash_insert (table, &spte->elem);
-	return true;
+	return spte;
 }
 
-bool page_load_demand (struct page_entry *spte, void *paddr)
+bool
+page_load_demand (struct page_entry *spte, void *paddr)
 {
 	if (file_read_at (spte->file, paddr, spte->read_bytes, spte->ofs)
 	    != (int) spte->read_bytes)
@@ -174,6 +180,25 @@ bool page_load_demand (struct page_entry *spte, void *paddr)
 	spte->is_loaded = true;
 	return install_page (spte->vaddr, paddr, spte->writable);
 }
+
+
+void
+page_munmap (struct hash *table, struct page_entry *spte, void *pagedir)
+{
+	if (spte->is_loaded)
+	{
+		void *paddr = pagedir_get_page (pagedir, spte->vaddr);
+		if (pagedir_is_dirty (pagedir, spte->vaddr))
+		{
+			file_write_at (spte->file, paddr, spte->read_bytes, spte->ofs);
+		}
+		palloc_free_page (paddr);
+	}
+	hash_delete (table, &spte->elem);
+	pagedir_clear_page (pagedir, spte->vaddr);
+	free (spte);
+}
+
 
 
 /***** hash function and less function for hash table initialization *****/
@@ -262,8 +287,12 @@ page_destroy_action (struct hash_elem *e, void *aux UNUSED)
 		case FILE:
 			/* Nothing to do in unloaded file pages */
 			break;
+		case MMAP:
+			break;
 	}
 
 	/* Free!! */
 	free (pe);
 }
+
+
