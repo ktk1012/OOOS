@@ -12,7 +12,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 
-static struct lock filesys_lock;
+extern struct lock filesys_lock;
 
 static void syscall_handler (struct intr_frame *);
 static int get_user (uint8_t *uaddr);

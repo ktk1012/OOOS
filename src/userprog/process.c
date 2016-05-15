@@ -670,7 +670,7 @@ clear_resources (void)
   {
     e = list_front (&curr->mmap_list);
     me = list_entry (e, struct mmap_entry, elem);
-    vm_munmap (me);
+    // vm_munmap (me);
     list_remove (e);
     free (me);
   }
