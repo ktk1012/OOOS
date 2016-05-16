@@ -192,26 +192,27 @@ process_exit (int status)
       curr->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
-      /* Set shared_status field for wait synchronization */
-      if (st->p_status == PARENT_WAITING)
-        {
-          st->exit_status = status;
-          st->is_child_exit = true;
-          sema_up (&st->synch);
-        }
-      else if (st->p_status == PARENT_RUNNING)
-        {
-          st->exit_status = status;
-          st->is_child_exit = true;
-        }
-      else 
-        {
-          free (st);
-        }
-      file_close (curr->excutable);
+
     }
-  lock_release (&exit_lock);
   printf ("%s: exit(%d)\n", thread_name (), status);
+  /* Set shared_status field for wait synchronization */
+  if (st->p_status == PARENT_WAITING)
+  {
+    st->exit_status = status;
+    st->is_child_exit = true;
+    sema_up (&st->synch);
+  }
+  else if (st->p_status == PARENT_RUNNING)
+  {
+    st->exit_status = status;
+    st->is_child_exit = true;
+  }
+  else
+  {
+    free (st);
+  }
+  file_close (curr->excutable);
+  lock_release (&exit_lock);
 }
 
 /* Sets up the CPU for running user code in the current
