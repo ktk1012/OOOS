@@ -264,15 +264,6 @@ page_destroy_action (struct hash_elem *e, void *aux UNUSED)
 	struct page_entry *pe = hash_entry (e, struct page_entry, elem);
 	struct thread *t = thread_current ();
 	void *paddr;
-  /* if (pe->type == MMAP)
-  {
-    list_remove (&pe->elem_mmap);
-    if (pagedir_is_dirty (t->pagedir, pe->vaddr))
-    {
-      file_write_at 
-    }
-    // return;
-  } */
 
 	/* If page is loaded in memory, call palloc_free */
 	if (pe->is_loaded)

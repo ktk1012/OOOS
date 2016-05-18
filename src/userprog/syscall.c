@@ -324,17 +324,17 @@ syscall_handler (struct intr_frame *f UNUSED)
       case SYS_MMAP:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        // lock_acquire (&filesys_lock);
         result = syscall_mmap (f);
-        lock_release (&filesys_lock);
+        // lock_release (&filesys_lock);
         break;
 
       case SYS_MUNMAP:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        // lock_acquire (&filesys_lock);
         result = syscall_munmap (f);
-        lock_release (&filesys_lock);
+        // lock_release (&filesys_lock);
         break;
 
     }

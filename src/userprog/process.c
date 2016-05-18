@@ -815,7 +815,9 @@ int process_mmap (int fd, void *addr)
     return MAP_FAILED;
 
   /* Reopen the file */
+  lock_acquire (&filesys_lock);
   struct file *file = file_reopen (fe->file);
+  lock_release (&filesys_lock);
 
   struct mmap_entry *me = vm_add_mmap (file, addr, file_size);
   if (me == NULL)
@@ -831,7 +833,9 @@ int process_munmap (mapid_t mid)
     return -1;
   struct file *file = me->file;
   vm_munmap (me);
+  lock_acquire (&filesys_lock);
   file_close (file);
+  lock_release (&filesys_lock);
   list_remove (&me->elem);
   free (me);
   return 0;

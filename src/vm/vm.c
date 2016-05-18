@@ -12,6 +12,8 @@
 static struct lock vm_frame_lock; /* Lock for synch vm system */
 static struct lock vm_mmap_lock;
 
+struct lock filesys_lock;
+
 
 /* Internal function for swap in */
 static bool vm_swap_in (struct page_entry *spte);
@@ -161,7 +163,11 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 		if (spte->type == MMAP)
 		{
 			if (pagedir_is_dirty(fe->owner->pagedir, fe->vaddr))
+			{
+				lock_acquire (&filesys_lock);
 				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
+				lock_release (&filesys_lock);
+			}
 		}
 		else if (spte->type != FILE ||
 				pagedir_is_dirty (fe->owner->pagedir, fe->vaddr))
@@ -170,17 +176,8 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 			spte->block_idx = swap_idx;
 			spte->type = DISK;
 		}
-		/*if (pagedir_is_dirty (fe->owner->pagedir, fe->vaddr))
-		{
-			if (spte->type == MMAP)
-				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
-			else
-			{
-				size_t swap_idx = swap_write (fe->paddr);
-				spte->block_idx = swap_idx;
-				spte->type = DISK;
-			}
-		}*/
+
+		/* Set sup.page entry loaded flag to false */
 		spte->is_loaded = false;
 		/* Clear page table entry (set present bit invalid */
 		pagedir_clear_page (fe->owner->pagedir, fe->vaddr);
@@ -356,7 +353,7 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 	struct mmap_entry *me = malloc (sizeof (struct mmap_entry));
 	if (me == NULL)
 		return NULL;
-	// lock_acquire (&vm_mmap_lock);
+	lock_acquire (&vm_mmap_lock);
 	lock_acquire (&curr->page_lock);
 	/* Initialize mmap entry */
 	me->file = file;
@@ -404,7 +401,7 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 		return NULL;
 	}
 	list_push_back (&curr->mmap_list, &me->elem);
-	// lock_release (&vm_mmap_lock);
+	lock_release (&vm_mmap_lock);
 	lock_release (&curr->page_lock);
 
 	me->mid = curr->mapid_next++;
@@ -428,7 +425,11 @@ vm_munmap (struct mmap_entry *me)
 			void *paddr = pagedir_get_page (curr->pagedir, spte->vaddr);
 			struct frame_entry *fe = frame_get_entry (paddr);
 			if (pagedir_is_dirty (curr->pagedir, spte->vaddr))
-				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
+			{
+				lock_acquire (&filesys_lock);
+				file_write_at(spte->file, fe->paddr, spte->read_bytes, spte->ofs);
+				lock_release (&filesys_lock);
+			}
 			vm_free_page (paddr);
 		}
 		else
