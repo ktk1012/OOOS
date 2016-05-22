@@ -26,8 +26,10 @@ static struct cache cache;
 static struct cache_entry *get_block (disk_sector_t idx);
 /* Eviction */
 static struct cache_entry *evict_block (void);
-/* Refresher */
-static void cache_refresh (void *aux UNUSED);
+/* Flush all dirty blocks */
+static void cache_refresh (void);
+/* Periodically flushes all dirty blocks */
+static void cache_periodic_refresh (void *aux UNUSED);
 
 
 void
@@ -40,7 +42,7 @@ cache_init (void)
 	memset(cache.cache_block, 0, CACHE_SIZE * sizeof(struct cache_entry));
 	struct semaphore sem;
 	sema_init (&sem, 0);
-	thread_create ("refresh", PRI_MIN, cache_refresh, (void *)&sem);
+	thread_create ("refresh", PRI_MIN, cache_periodic_refresh, (void *)&sem);
 	sema_down (&sem);
 }
 
@@ -50,14 +52,8 @@ cache_done (void)
 {
 	lock_acquire (&cache_lock);
 	bitmap_destroy (cache.free_map);
-	int i;
-	for (i = 0; i < CACHE_SIZE; ++i)
-	{
-		struct cache_entry *temp = &cache.cache_block[i];
-		if (temp->is_valid && temp->is_dirty)
-			disk_write (filesys_disk, temp->idx, temp->buffer);
-	}
 	lock_release (&cache_lock);
+	cache_refresh ();
 }
 
 void cache_read (disk_sector_t idx, void *buffer)
@@ -180,10 +176,9 @@ evict_block (void)
 }
 
 static void
-cache_refresh (void *aux UNUSED)
+cache_refresh (void)
 {
 	lock_acquire (&cache_lock);
-	struct seamphore *sem = aux;
 	int i;
 	for (i = 0; i < CACHE_SIZE; ++i)
 	{
@@ -194,7 +189,17 @@ cache_refresh (void *aux UNUSED)
 			temp->is_dirty = false;
 		}
 	}
-	sema_up ((struct semaphore *) sem);
 	lock_release (&cache_lock);
-	timer_sleep (10 * TIMER_FREQ);
+}
+
+static void
+cache_periodic_refresh (void *aux UNUSED)
+{
+	struct semaphore *sem = aux;
+	sema_up ((struct semaphore *)sem);
+	while (1)
+	{
+		cache_refresh ();
+		timer_sleep (TIMER_FREQ * 10);
+	}
 }
