@@ -149,6 +149,10 @@ struct thread
 
     void *esp;                          /* For saving esp value in system call */
 
+    /* For mmap support */
+    struct list mmap_list;              /* List of mmapped entries */
+    int mapid_next;                     /* mapid_t that to be allocated */
+
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };

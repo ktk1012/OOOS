@@ -25,12 +25,16 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+/* External global lock from syscall.c */
+struct lock filesys_lock; /* Lock for accessing file system */
+
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
@@ -58,7 +62,7 @@ process_execute (const char *file_name)
   args[2] = (void *) &is_child_loaded;
 
 
-  /* Create a new thread to execute FILE_NAME. 
+  /* Create a new thread to execute FILE_NAME.
    * I set thread_name 'process' temporaly, It would set it's command name,
    * after loaded */
   tid = thread_create (fn_copy, PRI_DEFAULT, start_process, (void *) args);
@@ -68,7 +72,7 @@ process_execute (const char *file_name)
     {
       list_remove (&st->elem);
       free (st);
-      palloc_free_page (fn_copy); 
+      palloc_free_page (fn_copy);
     }
   st->child = tid;
   return is_child_loaded ? tid : -1;
@@ -85,7 +89,7 @@ start_process (void *f_name)
   struct intr_frame if_;
   bool success;
 
-  
+
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
@@ -98,7 +102,7 @@ start_process (void *f_name)
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
+  if (!success)
     {
       thread_exit (-1);
     }
@@ -123,7 +127,7 @@ start_process (void *f_name)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid) 
+process_wait (tid_t child_tid)
 {
   struct thread *curr = thread_current ();
   struct shared_status *st = NULL;
@@ -138,14 +142,14 @@ process_wait (tid_t child_tid)
     }
   if (st != NULL)
     {
-      if (st->is_child_exit) 
+      if (st->is_child_exit)
         {
           status = st->exit_status;
           list_remove (&st->elem);
           free (st);
           return status;
         }
-      else 
+      else
         {
           st->p_status = PARENT_WAITING;
           sema_down (&st->synch);
@@ -158,7 +162,7 @@ process_wait (tid_t child_tid)
   return -1;
 }
 
-/* Utility function that close all process's open files 
+/* Utility function that close all process's open files
  * See further belows for implementation */
 static void clear_resources (void);
 
@@ -173,8 +177,9 @@ process_exit (int status)
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = curr->pagedir;
+  clear_resources ();
   vm_destroy_page_table (&curr->page_table);
-  if (pd != NULL) 
+  if (pd != NULL)
     {
       /* Correct ordering here is crucial.  We must set
          cur->pagedir to NULL before switching page directories,
@@ -186,26 +191,26 @@ process_exit (int status)
       curr->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
-      /* Set shared_status field for wait synchronization */
-      if (st->p_status == PARENT_WAITING)
-        {
-          st->exit_status = status;
-          st->is_child_exit = true;
-          sema_up (&st->synch);
-        }
-      else if (st->p_status == PARENT_RUNNING)
-        {
-          st->exit_status = status;
-          st->is_child_exit = true;
-        }
-      else 
-        {
-          free (st);
-        }
-      clear_resources ();
-      file_close (curr->excutable);
+
     }
   printf ("%s: exit(%d)\n", thread_name (), status);
+  /* Set shared_status field for wait synchronization */
+  if (st->p_status == PARENT_WAITING)
+  {
+    st->exit_status = status;
+    st->is_child_exit = true;
+    sema_up (&st->synch);
+  }
+  else if (st->p_status == PARENT_RUNNING)
+  {
+    st->exit_status = status;
+    st->is_child_exit = true;
+  }
+  else
+  {
+    free (st);
+  }
+  file_close (curr->excutable);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -298,7 +303,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (const char *file_name, void (**eip) (void), void **esp)
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -315,16 +320,16 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
-  if (t->pagedir == NULL) 
+  if (t->pagedir == NULL)
     goto done;
   process_activate ();
 
   /* Open executable file. */
   file = filesys_open (file_name);
-  if (file == NULL) 
+  if (file == NULL)
     {
       printf ("load: %s: open failed\n", file_name);
-      goto done; 
+      goto done;
     }
 
   /* Read and verify executable header. */
@@ -334,15 +339,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_machine != 3
       || ehdr.e_version != 1
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
-      || ehdr.e_phnum > 1024) 
+      || ehdr.e_phnum > 1024)
     {
       printf ("load: %s: error loading executable\n", file_name);
-      goto done; 
+      goto done;
     }
 
   /* Read program headers. */
   file_ofs = ehdr.e_phoff;
-  for (i = 0; i < ehdr.e_phnum; i++) 
+  for (i = 0; i < ehdr.e_phnum; i++)
     {
       struct Elf32_Phdr phdr;
 
@@ -353,7 +358,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
         goto done;
       file_ofs += sizeof phdr;
-      switch (phdr.p_type) 
+      switch (phdr.p_type)
         {
         case PT_NULL:
         case PT_NOTE:
@@ -367,7 +372,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
         case PT_SHLIB:
           goto done;
         case PT_LOAD:
-          if (validate_segment (&phdr, file)) 
+          if (validate_segment (&phdr, file))
             {
               bool writable = (phdr.p_flags & PF_W) != 0;
               uint32_t file_page = phdr.p_offset & ~PGMASK;
@@ -382,7 +387,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
                   zero_bytes = (ROUND_UP (page_offset + phdr.p_memsz, PGSIZE)
                                 - read_bytes);
                 }
-              else 
+              else
                 {
                   /* Entirely zero.
                      Don't read anything from disk. */
@@ -428,24 +433,24 @@ load (const char *file_name, void (**eip) (void), void **esp)
 /* Checks whether PHDR describes a valid, loadable segment in
    FILE and returns true if so, false otherwise. */
 static bool
-validate_segment (const struct Elf32_Phdr *phdr, struct file *file) 
+validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
 {
   /* p_offset and p_vaddr must have the same page offset. */
-  if ((phdr->p_offset & PGMASK) != (phdr->p_vaddr & PGMASK)) 
-    return false; 
+  if ((phdr->p_offset & PGMASK) != (phdr->p_vaddr & PGMASK))
+    return false;
 
   /* p_offset must point within FILE. */
-  if (phdr->p_offset > (Elf32_Off) file_length (file)) 
+  if (phdr->p_offset > (Elf32_Off) file_length (file))
     return false;
 
   /* p_memsz must be at least as big as p_filesz. */
-  if (phdr->p_memsz < phdr->p_filesz) 
-    return false; 
+  if (phdr->p_memsz < phdr->p_filesz)
+    return false;
 
   /* The segment must not be empty. */
   if (phdr->p_memsz == 0)
     return false;
-  
+
   /* The virtual memory region must both start and end within the
      user address space range. */
   if (!is_user_vaddr ((void *) phdr->p_vaddr))
@@ -486,14 +491,14 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
    or disk read error occurs. */
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
-              uint32_t read_bytes, uint32_t zero_bytes, bool writable) 
+              uint32_t read_bytes, uint32_t zero_bytes, bool writable)
 {
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
   file_seek (file, ofs);
-  while (read_bytes > 0 || zero_bytes > 0) 
+  while (read_bytes > 0 || zero_bytes > 0)
     {
       /* Do calculate how to fill this page.
          We will read PAGE_READ_BYTES bytes from FILE
@@ -502,28 +507,28 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      uint8_t *kpage = vm_get_page (PAL_USER, upage);
+      /* uint8_t *kpage = vm_get_page (PAL_USER, upage);
       if (kpage == NULL)
         return false;
-
+      */
       /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+      /* if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
         {
           vm_free_page (kpage);
-          return false; 
+          return false;
         }
       memset (kpage + page_read_bytes, 0, page_zero_bytes);
+      */
 
-      /* Add the page to the process's address space. */
-      if (!vm_install_page (upage, kpage, writable, PAL_USER, FILE))
-        {
-          vm_free_page (kpage);
-          return false; 
-        }
+      /* Lazily load page in code segment */
+      if (!vm_load_lazy (file, ofs, upage, page_read_bytes,
+                         page_zero_bytes, writable))
+        return false;
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
+      ofs += page_read_bytes;       /* advance offset of file position */
       upage += PGSIZE;
     }
   return true;
@@ -532,7 +537,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, void **arg_) 
+setup_stack (void **esp, void **arg_)
 {
   /****************   Memory layout   ***********************
    *          PHYS_BASE -> **************
@@ -549,12 +554,12 @@ setup_stack (void **esp, void **arg_)
   bool success = false;
   int i;                    /* arg_lenoral variable for for loop */
   int argc = 0;             /* argc value */
-  size_t arg_len;           /* Length of each argument */            
+  size_t arg_len;           /* Length of each argument */
   char *token;              /* Parsed string token */
   void *args_origin;        /* Origin point of argv pushing */
 
   kpage = vm_get_page (PAL_USER | PAL_ZERO, PHYS_BASE - PGSIZE);
-  if (kpage != NULL) 
+  if (kpage != NULL)
     {
       success = vm_install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true,
                                  PAL_USER | PAL_ZERO, MEM);
@@ -605,7 +610,7 @@ setup_stack (void **esp, void **arg_)
   memset (*esp, 0, 4);
 
   /* For debugging */
-  //hex_dump ((uintptr_t)*esp, 
+  //hex_dump ((uintptr_t)*esp,
   //          *esp, (int) ((size_t) PHYS_BASE - (size_t) *esp),
   //          true);
 
@@ -635,18 +640,10 @@ install_page (void *upage, void *kpage, bool writable)
 
 
 /*************** For supporting system calls ******************/
-
-/* Open file entry */
-struct fd_entry
-  {
-    struct file * file;
-    int fd;
-    struct list_elem elem;
-  };
-
 static struct fd_entry *get_fd_entry (int fd);
+static struct mmap_entry *get_mmap_entry (mapid_t mid);
 
-static struct fd_entry * 
+static struct fd_entry *
 get_fd_entry (int fd)
 {
   struct list_elem *e;
@@ -668,26 +665,37 @@ clear_resources (void)
   struct fd_entry *fe;
   struct shared_status *st;
   struct list_elem *e;
+  struct mmap_entry *me;
+  /* Remove mmap entry */
+  while (!list_empty (&curr->mmap_list))
+  {
+    e = list_front (&curr->mmap_list);
+    me = list_entry (e, struct mmap_entry, elem);
+    list_remove (e);
+    free (me);
+  }
+  /* Remove open file entry */
   while (!list_empty (&curr->files))
-    {
-      fe = list_entry (list_pop_front (&curr->files),
-                       struct fd_entry, elem);
-      file_close (fe->file);
-      free (fe);
-    }
+  {
+    fe = list_entry (list_pop_front (&curr->files),
+                     struct fd_entry, elem);
+    file_close (fe->file);
+    free (fe);
+  }
+  /* Send signal to childs that parent exit */
   for (e = list_begin (&curr->list_child); e != list_end (&curr->list_child);)
+  {
+    st = list_entry (e, struct shared_status, elem);
+    e = list_next (e);
+    if (st->is_child_exit)
     {
-      st = list_entry (e, struct shared_status, elem);
-      e = list_next (e);
-      if (st->is_child_exit)
-        {
-          free (st);
-        }
-      else 
-        {
-          st->p_status = PARENT_EXITED;
-        }
+      free (st);
     }
+    else
+    {
+      st->p_status = PARENT_EXITED;
+    }
+  }
 }
 
 
@@ -712,6 +720,7 @@ int process_filesize (int fd)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
+
   return file_length (fe->file);
 }
 
@@ -755,7 +764,7 @@ int process_seek (int fd, unsigned position)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
-  file_seek (fe->file, (off_t) position);  
+  file_seek (fe->file, (off_t) position);
   return 0;
 }
 
@@ -772,10 +781,71 @@ int process_close (int fd)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
-  file_close (fe->file);
   list_remove (&fe->elem);
   free (fe);
   return 0;
 }
 
+/* Get mmap entry in current process */
+static struct mmap_entry *
+get_mmap_entry (mapid_t mid)
+{
+  struct list_elem *e;
+  struct thread *curr = thread_current ();
+  for (e = list_begin (&curr->mmap_list); e != list_end (&curr->mmap_list);
+       e = list_next (e))
+  {
+    struct mmap_entry *me = list_entry (e, struct mmap_entry, elem);
+    if (me->mid == mid)
+      return me;
+  }
+  return NULL;
+}
+
+/* Mmap for given file entry */
+int process_mmap (int fd, void *addr)
+{
+  if (addr == NULL || pg_ofs (addr))
+    return MAP_FAILED;
+
+  /* Find corresponding open file entry */
+  struct fd_entry *fe = get_fd_entry (fd);
+  if (fe == NULL)
+    return MAP_FAILED;
+
+  /* Calculate length of file */
+  size_t file_size = file_length (fe->file);
+  if (file_size == 0)
+    return MAP_FAILED;
+
+  /* Reopen the file */
+  lock_acquire (&filesys_lock);
+  struct file *file = file_reopen (fe->file);
+  lock_release (&filesys_lock);
+
+  /* Add mmap page entry */
+  struct mmap_entry *me = vm_add_mmap (file, addr, file_size);
+  if (me == NULL)
+    return MAP_FAILED;  /* Failed */
+  else
+    return me->mid;     /* Sucess give mmap id */
+}
+
+/* Unmap mapped file */
+int process_munmap (mapid_t mid)
+{
+  struct mmap_entry *me = get_mmap_entry (mid);
+  if (me == NULL)
+    return -1;
+  struct file *file = me->file;
+  vm_munmap (me);
+  lock_acquire (&filesys_lock);
+  /*  Close file */
+  file_close (file);
+  lock_release (&filesys_lock);
+  /* Remove mmap entry */
+  list_remove (&me->elem);
+  free (me);
+  return 0;
+}
 

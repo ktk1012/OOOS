@@ -683,6 +683,12 @@ init_thread (struct thread *t, const char *name, int priority)
   /* Set fd_next */
   t->fd_next = 3;
 #endif
+
+#ifdef VM
+	list_init (&t->mmap_list);
+	t->mapid_next = 1;
+#endif
+
   list_push_back (&all_list, &t->allelem);
 }
 

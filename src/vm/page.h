@@ -1,9 +1,12 @@
 #ifndef VM_PAGE_H
 #define VM_PAGE_H
 #include <hash.h>
+#include <list.h>
 #include "threads/palloc.h"
 #include "vm/frame.h"
 #include "vm/swap.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 
 
 /**
@@ -14,7 +17,8 @@ enum page_type
 {
 	MEM,
 	DISK,
-	FILE
+	FILE,
+	MMAP
 };
 
 
@@ -36,6 +40,15 @@ struct page_entry
 	/* For swapped item */
 	size_t block_idx;    /* Indicate the location of swap disk, if swapped out */
 
+	/* For lazy loading for file and mmap */
+	struct file *file;
+	off_t ofs;
+	uint32_t read_bytes;
+	uint32_t zero_bytes;
+
+	/* For mmap */
+	struct list_elem elem_mmap;
+
 	/* Hash element for supplemental page table */
 	struct hash_elem elem;
 };
@@ -49,5 +62,13 @@ void page_delete_entry (struct hash *table, struct page_entry *spte);
 
 void page_destroy_table (struct hash *table);
 
+struct page_entry * page_load_lazy (struct hash *table, struct file *file,
+                                    off_t ofs, void *vaddr,
+                                    uint32_t read_bytes, uint32_t zero_bytes,
+                                    bool writable, enum page_type type);
+
+bool page_load_demand (struct page_entry *spte, void *paddr);
+
+void page_munmap (struct hash *table, struct page_entry *spte, void *pagedir);
 
 #endif //VM_PAGE_H
