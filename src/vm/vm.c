@@ -10,13 +10,15 @@
 #include <stdio.h>
 
 static struct lock vm_frame_lock; /* Lock for synch vm system */
-static struct lock vm_mmap_lock;
+static struct lock vm_mmap_lock;  /* Lock for mmap routine */
 
-struct lock filesys_lock;
+struct lock filesys_lock;         /* External global lock from process.c */
 
 
 /* Internal function for swap in */
 static bool vm_swap_in (struct page_entry *spte);
+
+/* Interbal function for load on demand */
 static bool vm_load_demand (struct page_entry *spte);
 
 
@@ -160,8 +162,10 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 
 		struct page_entry *spte = page_get_entry (&fe->owner->page_table, fe->vaddr);
 
+		/* If victim page is mmaped region */
 		if (spte->type == MMAP)
 		{
+			/* If dirty, write back to file */
 			if (pagedir_is_dirty(fe->owner->pagedir, fe->vaddr))
 			{
 				lock_acquire (&filesys_lock);
@@ -172,6 +176,7 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 		else if (spte->type != FILE ||
 				pagedir_is_dirty (fe->owner->pagedir, fe->vaddr))
 		{
+			/* If this is not file and dirty, write to swap disk */
 			size_t swap_idx = swap_write (fe->paddr);
 			spte->block_idx = swap_idx;
 			spte->type = DISK;
@@ -270,12 +275,28 @@ vm_destroy_page_table (struct hash *table)
 }
 
 
+/**
+ * \vm_load_lazy
+ * \Add page lazily, wrapper of page_load_lazy,
+ * \this is for file loading not mmap
+ *
+ * \param   file  file to load lazily
+ * \param   ofs   offset of file to be read
+ * \param   vaddr user virtual address of current context
+ * \param   read_bytes  bytes to be read from offset
+ * \param   zero_bytes  bytes of zero padding
+ * \param   writable    indicates that this region is writable or not
+ *
+ * \retval  true if lazy loading successful
+ * \retval  false if failed
+ */
 bool
 vm_load_lazy (struct file *file, off_t ofs, void *vaddr,
               uint32_t read_bytes, uint32_t zero_bytes, bool writable)
 {
 	struct thread *curr = thread_current ();
 	lock_acquire (&curr->page_lock);
+	/* Call page_load_lazy with corresponding page table */
 	struct page_entry *result = page_load_lazy (&curr->page_table, file, ofs,
 	                                            vaddr, read_bytes, zero_bytes,
 	                                            writable, FILE);
@@ -323,7 +344,17 @@ vm_swap_in (struct page_entry *spte)
 	return true;
 }
 
-
+/**
+ * \internal
+ *
+ * \vm_load_demand
+ * \Load page when fault occurred, wrapper of page_load_demand
+ *
+ * \param   spte  faulted supplemental page table entry
+ *
+ * \retval  true  if loading in memory success
+ * \retval  false if failed
+ */
 static bool
 vm_load_demand (struct page_entry *spte)
 {
@@ -334,17 +365,29 @@ vm_load_demand (struct page_entry *spte)
 	struct thread *curr = thread_current ();
 	lock_acquire (&curr->page_lock);
 
+	/* Call page load demand, if failed return false */
 	if (!page_load_demand (spte, paddr))
 	{
 		vm_free_page (paddr);
 		lock_release (&curr->page_lock);
 		return false;
 	}
+	/* Success :) */
 	lock_release (&curr->page_lock);
 	return true;
 }
 
-
+/**
+ * \vm_add_mmap
+ * \Mmap the given file
+ *
+ * \param   file    file to be mmaped
+ * \param   start_addr  address for starting mmap (user virtual address)
+ * \param   file_size   size of given file
+ *
+ * \retval  mmap entry if successful
+ * \retval  Null if failed
+ */
 struct mmap_entry *
 vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 {
@@ -353,6 +396,8 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 	struct mmap_entry *me = malloc (sizeof (struct mmap_entry));
 	if (me == NULL)
 		return NULL;
+
+	/* Lock acquire mmap lock and page lock as it shares mmap entry and page */
 	lock_acquire (&vm_mmap_lock);
 	lock_acquire (&curr->page_lock);
 	/* Initialize mmap entry */
@@ -361,7 +406,8 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 	list_init (&me->fd_list);
 
 	bool ret = true;
-	// return ret;
+
+	/* Load lazily given file */
 	off_t ofs = 0;
 	while (file_size > 0)
 	{
@@ -390,6 +436,7 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 		start_addr += PGSIZE;
 	}
 
+	/* Mmap failed */
 	if (ret == false)
 	{
 		struct list_elem *e;
@@ -409,12 +456,24 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 }
 
 
+/**
+ * \vm_munmap
+ * \Unmap the mmap entry
+ *
+ * \param   me  mmap entry that mmaped
+ *
+ * \retval  void
+ */
 void
 vm_munmap (struct mmap_entry *me)
 {
 	struct thread *curr = thread_current ();
 	struct page_entry *spte;
+	/* acuiqre mmap lock */
 	lock_acquire (&vm_mmap_lock);
+
+	/* Remove allocated page in mmap entry
+	 * As mmap entry containes list of consecutive virtual pages */
 	while (!list_empty (&me->map_list))
 	{
 		spte = list_entry (list_pop_front (&me->map_list),
