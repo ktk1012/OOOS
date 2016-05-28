@@ -10,13 +10,14 @@
 /* For debugging */
 #include <stdio.h>
 
+static uint64_t time_stamp;  /* Time stamp for LRU eviction */
+
 struct cache
 {
 	/* Cache entries */
 	struct cache_entry cache_block[CACHE_SIZE];
 	struct bitmap *free_map;  /* Bitmap of available cache blocks */
 	int aval_size;            /* Available cache block size */
-	int curr;                 /* Pointer to current block */
 };
 
 static struct lock cache_lock;
@@ -37,9 +38,9 @@ cache_init (void)
 {
 	lock_init(&cache_lock);
 	cache.aval_size = 64;
-	cache.curr = 0;
 	cache.free_map = bitmap_create (CACHE_SIZE);
 	memset(cache.cache_block, 0, CACHE_SIZE * sizeof(struct cache_entry));
+	time_stamp = 0;
 	struct semaphore sem;
 	sema_init (&sem, 0);
 	thread_create ("refresh", PRI_MIN, cache_periodic_refresh, (void *)&sem);
@@ -105,7 +106,10 @@ get_block (disk_sector_t idx)
 		/* Find corresponding entry which is valid */
 		temp = &cache.cache_block[i];
 		if (temp->is_valid && temp->idx == idx)
+		{
+			temp->time = time_stamp++;  /* Update accessed time stamp */
 			return temp;
+		}
 	}
 
 	/* Not found case */
@@ -121,17 +125,12 @@ get_block (disk_sector_t idx)
 
 	/* Decrement available block size */
 	--cache.aval_size;
+
+	/* Set index of block sector */
 	temp->idx = idx;
 
-	/* Initialization */
-	// temp->is_valid = true;
-	// temp->is_accessed = false;
-	// temp->is_dirty = false;
-	/* If zero filled creation, not request disk immediately */
-	// if (is_create)
-		// memset (temp->buffer, 0, DISK_SECTOR_SIZE);
-	// else
-		// disk_read (filesys_disk, temp->idx, temp->buffer);
+	/* Update accessed time stamp */
+	temp->time = time_stamp++;
 
 	return temp;
 }
@@ -139,29 +138,22 @@ get_block (disk_sector_t idx)
 static struct cache_entry *
 evict_block (void)
 {
-	bool is_find = false;
 	struct cache_entry *temp = NULL;
-	while (1)
+	struct cache_entry *lru_min = &cache.cache_block[0];
+	int idx_min = 0;
+
+	/* Find lru min */
+	int i;
+	for (i = 1; i < CACHE_SIZE; ++i)
 	{
-		for (; cache.curr < CACHE_SIZE; ++cache.curr)
+		temp = &cache.cache_block[i];
+		if (lru_min->time < temp->time)
 		{
-			temp = &cache.cache_block[cache.curr];
-
-			if (!temp->is_valid)
-				continue;
-
-			if (!temp->is_accessed)
-			{
-				is_find = true;
-				break;
-			}
-			else
-				temp->is_accessed = false;
+			idx_min = i;
+			lru_min = temp;
 		}
-		if (is_find)
-			break;
-		cache.curr = 0;
 	}
+	temp = lru_min;
 	ASSERT (temp != NULL);
 
 	/* Find victim block, if block is dirty write back */
@@ -169,7 +161,7 @@ evict_block (void)
 		disk_write (filesys_disk, temp->idx, temp->buffer);
 	temp->is_valid = false;
 	temp->is_dirty = false;
-	bitmap_set (cache.free_map, cache.curr, false);
+	bitmap_set (cache.free_map, idx_min, false);
 	temp->idx = -1;
 	++cache.aval_size;
 	return temp;

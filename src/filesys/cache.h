@@ -16,6 +16,7 @@ struct cache_entry
 	bool is_dirty;                    /* Dirty check bit */
 	bool is_accessed;                 /* Access check bit */
 	bool is_valid;                    /* Valid check bit */
+	uint64_t time;                    /* Last accessed time */
 };
 
 /* Functions for caching */
