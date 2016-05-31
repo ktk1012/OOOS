@@ -41,6 +41,13 @@ cache_init (void)
 	cache.free_map = bitmap_create (CACHE_SIZE);
 	memset(cache.cache_block, 0, CACHE_SIZE * sizeof(struct cache_entry));
 	time_stamp = 0;
+
+	/* Initialize all cache_entries' locks */
+	int i;
+	for (i = 0; i < CACHE_SIZE; ++i)
+		lock_init (&cache.cache_block[i].block_lock);
+
+	/* Make new thread for periodically refresh the dirty cache blocks */
 	struct semaphore sem;
 	sema_init (&sem, 0);
 	thread_create ("refresh", PRI_MIN, cache_periodic_refresh, (void *)&sem);
@@ -57,45 +64,57 @@ cache_done (void)
 	cache_refresh ();
 }
 
-void cache_read (disk_sector_t idx, void *buffer)
+
+void
+cache_read (disk_sector_t idx, void *buffer, off_t ofs, size_t read_bytes)
 {
-	lock_acquire (&cache_lock);
+	/* Get cache block entry */
 	struct cache_entry *temp = get_block (idx);
-	if (temp->is_valid)
-		memcpy (buffer, temp->buffer, DISK_SECTOR_SIZE);
-	else
-	{
+
+	/* Acquire individual lock in cache block entry */
+	lock_acquire (&temp->block_lock);
+	/* If block is not valid, read from disk to buffer cache */
+	if (!temp->is_valid)
 		disk_read (filesys_disk, idx, temp->buffer);
-		memcpy (buffer, temp->buffer, DISK_SECTOR_SIZE);
-	}
+
+	memcpy (buffer, temp->buffer + ofs, read_bytes);
 	temp->is_valid = true;
-	temp->is_accessed = true;
-	lock_release (&cache_lock);
+
+	/* Update accessed time stamp */
+	temp->time = time_stamp++;
+	lock_release (&temp->block_lock);
 }
 
-void cache_write (disk_sector_t idx, const void *buffer)
+void
+cache_write (disk_sector_t idx, const void *buffer,
+             off_t ofs, size_t write_bytes)
 {
-	lock_acquire (&cache_lock);
+	/* Get block entry */
 	struct cache_entry *temp = get_block (idx);
-	if (temp->is_valid)
-	{
-		memcpy(temp->buffer, buffer, DISK_SECTOR_SIZE);
-		temp->is_dirty = true;
-	}
-	else
-	{
-		disk_write(filesys_disk, idx, buffer);
-		memcpy (temp->buffer, buffer, DISK_SECTOR_SIZE);
-		temp->is_dirty = false;
-	}
+
+	/* Acquire individual lock */
+	lock_acquire (&temp->block_lock);
+	/* If block is not valid, read from disk to buffer cache */
+	if (!temp->is_valid)
+		disk_read (filesys_disk, idx, temp->buffer);
+
+	/* Copy to the cache block */
+	memcpy (temp->buffer + ofs, buffer, write_bytes);
+
+	/* Set dirty bit and valid bit, and update lru time */
+	temp->is_dirty = true;
 	temp->is_valid = true;
-	temp->is_accessed = true;
-	lock_release (&cache_lock);
+
+	/* Update accessed time stamp */
+	temp->time = time_stamp++;
+	lock_release (&temp->block_lock);
 }
 
 static struct cache_entry *
 get_block (disk_sector_t idx)
 {
+	/* Find corresponding block entry */
+	lock_acquire (&cache_lock);
 	int i;
 	struct cache_entry *temp = NULL;
 	for (i = 0; i < CACHE_SIZE; ++i)
@@ -107,17 +126,20 @@ get_block (disk_sector_t idx)
 		temp = &cache.cache_block[i];
 		if (temp->is_valid && temp->idx == idx)
 		{
-			temp->time = time_stamp++;  /* Update accessed time stamp */
+			lock_release (&cache_lock);
 			return temp;
 		}
 	}
+	lock_release (&cache_lock);
 
 	/* Not found case */
 	/* If there is available block */
 	if (cache.aval_size != 0)
 	{
+		lock_acquire (&cache_lock);
 		size_t entry = bitmap_scan_and_flip(cache.free_map, 0, 1, false);
 		temp = &cache.cache_block[entry];
+		lock_release (&cache_lock);
 	}
 	/* If not eviction occurs */
 	else
@@ -126,18 +148,21 @@ get_block (disk_sector_t idx)
 	/* Decrement available block size */
 	--cache.aval_size;
 
+	/* As block is changed, wait for previous block works to be done */
+	lock_acquire (&temp->block_lock);
 	/* Set index of block sector */
 	temp->idx = idx;
 
-	/* Update accessed time stamp */
-	temp->time = time_stamp++;
 
+	/* Release the cache lock */
+	lock_release (&temp->block_lock);
 	return temp;
 }
 
 static struct cache_entry *
 evict_block (void)
 {
+	lock_acquire (&cache_lock);
 	struct cache_entry *temp = NULL;
 	struct cache_entry *lru_min = &cache.cache_block[0];
 	int idx_min = 0;
@@ -155,15 +180,25 @@ evict_block (void)
 	}
 	temp = lru_min;
 	ASSERT (temp != NULL);
+	lock_release (&cache_lock);
+
+	/* Wait block to be idle (as content of block to be changed) */
+	lock_acquire (&temp->block_lock);
 
 	/* Find victim block, if block is dirty write back */
 	if (temp->is_dirty)
 		disk_write (filesys_disk, temp->idx, temp->buffer);
+
 	temp->is_valid = false;
 	temp->is_dirty = false;
+
 	bitmap_set (cache.free_map, idx_min, false);
-	temp->idx = -1;
 	++cache.aval_size;
+
+	/* Set invalid index */
+	temp->idx = -1;
+
+	lock_release (&temp->block_lock);
 	return temp;
 }
 
