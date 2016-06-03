@@ -60,8 +60,8 @@ cache_done (void)
 {
 	lock_acquire (&cache_lock);
 	bitmap_destroy (cache.free_map);
-	lock_release (&cache_lock);
 	cache_refresh ();
+	lock_release (&cache_lock);
 }
 
 
@@ -69,10 +69,12 @@ void
 cache_read (disk_sector_t idx, void *buffer, off_t ofs, size_t read_bytes)
 {
 	/* Get cache block entry */
+  lock_acquire (&cache_lock);
 	struct cache_entry *temp = get_block (idx);
-
 	/* Acquire individual lock in cache block entry */
 	lock_acquire (&temp->block_lock);
+  lock_release (&cache_lock);
+
 	/* If block is not valid, read from disk to buffer cache */
 	if (!temp->is_valid)
 		disk_read (filesys_disk, idx, temp->buffer);
@@ -90,10 +92,12 @@ cache_write (disk_sector_t idx, const void *buffer,
              off_t ofs, size_t write_bytes)
 {
 	/* Get block entry */
+  lock_acquire (&cache_lock); 
 	struct cache_entry *temp = get_block (idx);
-
 	/* Acquire individual lock */
 	lock_acquire (&temp->block_lock);
+  lock_release (&cache_lock);
+
 	/* If block is not valid, read from disk to buffer cache */
 	if (!temp->is_valid)
 		disk_read (filesys_disk, idx, temp->buffer);
@@ -114,7 +118,6 @@ static struct cache_entry *
 get_block (disk_sector_t idx)
 {
 	/* Find corresponding block entry */
-	lock_acquire (&cache_lock);
 	int i;
 	struct cache_entry *temp = NULL;
 	for (i = 0; i < CACHE_SIZE; ++i)
@@ -124,22 +127,21 @@ get_block (disk_sector_t idx)
 			break;
 		/* Find corresponding entry which is valid */
 		temp = &cache.cache_block[i];
+    lock_acquire (&temp->block_lock);
 		if (temp->is_valid && temp->idx == idx)
 		{
-			lock_release (&cache_lock);
+      lock_release (&temp->block_lock);
 			return temp;
 		}
+    lock_release (&temp->block_lock);
 	}
-	lock_release (&cache_lock);
 
 	/* Not found case */
 	/* If there is available block */
 	if (cache.aval_size != 0)
 	{
-		lock_acquire (&cache_lock);
 		size_t entry = bitmap_scan_and_flip(cache.free_map, 0, 1, false);
 		temp = &cache.cache_block[entry];
-		lock_release (&cache_lock);
 	}
 	/* If not eviction occurs */
 	else
@@ -162,7 +164,6 @@ get_block (disk_sector_t idx)
 static struct cache_entry *
 evict_block (void)
 {
-	lock_acquire (&cache_lock);
 	struct cache_entry *temp = NULL;
 	struct cache_entry *lru_min = &cache.cache_block[0];
 	int idx_min = 0;
@@ -180,7 +181,6 @@ evict_block (void)
 	}
 	temp = lru_min;
 	ASSERT (temp != NULL);
-	lock_release (&cache_lock);
 
 	/* Wait block to be idle (as content of block to be changed) */
 	lock_acquire (&temp->block_lock);
@@ -205,7 +205,6 @@ evict_block (void)
 static void
 cache_refresh (void)
 {
-	lock_acquire (&cache_lock);
 	int i;
 	for (i = 0; i < CACHE_SIZE; ++i)
 	{
@@ -216,7 +215,6 @@ cache_refresh (void)
 			temp->is_dirty = false;
 		}
 	}
-	lock_release (&cache_lock);
 }
 
 static void
@@ -226,7 +224,9 @@ cache_periodic_refresh (void *aux UNUSED)
 	sema_up ((struct semaphore *)sem);
 	while (1)
 	{
+    lock_acquire (&cache_lock);
 		cache_refresh ();
+    lock_release (&cache_lock);
 		timer_sleep (TIMER_FREQ * 10);
 	}
 }
