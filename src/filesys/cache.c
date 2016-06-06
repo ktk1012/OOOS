@@ -227,6 +227,6 @@ cache_periodic_refresh (void *aux UNUSED)
     lock_acquire (&cache_lock);
 		cache_refresh ();
     lock_release (&cache_lock);
-		timer_sleep (TIMER_FREQ * 10);
+		timer_sleep (TIMER_FREQ * 4);
 	}
 }
