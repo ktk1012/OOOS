@@ -274,9 +274,9 @@ page_destroy_action (struct hash_elem *e, void *aux UNUSED)
       list_remove (&pe->elem_mmap);
       if (pagedir_is_dirty (t->pagedir, pe->vaddr))
       {
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         file_write_at (pe->file, paddr, pe->read_bytes, pe->ofs);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
       }
     }
 		struct frame_entry *fe = frame_get_entry (paddr);

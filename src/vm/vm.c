@@ -164,9 +164,9 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 		{
 			if (pagedir_is_dirty(fe->owner->pagedir, fe->vaddr))
 			{
-				lock_acquire (&filesys_lock);
+				//lock_acquire (&filesys_lock)
 				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
-				lock_release (&filesys_lock);
+				//lock_release (&filesys_lock);
 			}
 		}
 		else if (spte->type != FILE ||
@@ -426,9 +426,9 @@ vm_munmap (struct mmap_entry *me)
 			struct frame_entry *fe = frame_get_entry (paddr);
 			if (pagedir_is_dirty (curr->pagedir, spte->vaddr))
 			{
-				lock_acquire (&filesys_lock);
+				//lock_acquire (&filesys_lock)
 				file_write_at(spte->file, fe->paddr, spte->read_bytes, spte->ofs);
-				lock_release (&filesys_lock);
+				//lock_release (&filesys_lock);
 			}
 			vm_free_page (paddr);
 		}

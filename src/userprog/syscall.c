@@ -252,89 +252,89 @@ syscall_handler (struct intr_frame *f UNUSED)
       case SYS_CREATE:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_create (f, &return_status);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_REMOVE:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_remove (f, &return_status);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_OPEN:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_open (f, &return_status);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_FILESIZE:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_filesize (f);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_READ:
         if (!check_arguments (f->esp + 4, 12))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_read (f, &return_status);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_WRITE:
         if (!check_arguments (f->esp + 4, 12))
             goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_write (f, &return_status);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_SEEK:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_seek (f);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_TELL:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_tell (f);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_CLOSE:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
+        //lock_acquire (&filesys_lock)
         result = syscall_close (f);
-        lock_release (&filesys_lock);
+        //lock_release (&filesys_lock);
         break;
 
       case SYS_MMAP:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        // lock_acquire (&filesys_lock);
+        // //lock_acquire (&filesys_lock)
         result = syscall_mmap (f);
-        // lock_release (&filesys_lock);
+        // //lock_release (&filesys_lock);
         break;
 
       case SYS_MUNMAP:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        // lock_acquire (&filesys_lock);
+        // //lock_acquire (&filesys_lock)
         result = syscall_munmap (f);
-        // lock_release (&filesys_lock);
+        // //lock_release (&filesys_lock);
         break;
 
     }
