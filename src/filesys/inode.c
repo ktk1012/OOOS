@@ -292,9 +292,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   off_t bytes_read = 0;
   off_t len = inode_length (inode);
 
-
-  while (size > 0) 
-    {
+  while (size > 0)
+  {
       /* Disk sector to read, starting byte offset within sector. */
       disk_sector_t sector_idx = byte_to_sector (inode, offset);
       int sector_ofs = offset % DISK_SECTOR_SIZE;
@@ -311,12 +310,12 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
 
       /* Read data from buffer cache */
       cache_read (sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
-      
+
       /* Advance. */
       size -= chunk_size;
       offset += chunk_size;
       bytes_read += chunk_size;
-    }
+  }
 
   return bytes_read;
 }
@@ -345,8 +344,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     cache_write (inode->sector, &inode->data, 0, DISK_SECTOR_SIZE);
   }
 
-  while (size > 0) 
-    {
+  while (size > 0)
+  {
       /* Sector to write, starting byte offset within sector. */
       disk_sector_t sector_idx = byte_to_sector (inode, offset);
       int sector_ofs = offset % DISK_SECTOR_SIZE;
@@ -369,7 +368,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       size -= chunk_size;
       offset += chunk_size;
       bytes_written += chunk_size;
-    }
+  }
 
   return bytes_written;
 }
@@ -498,8 +497,8 @@ inode_idxed_remove (struct inode_disk *disk_inode, size_t size)
 
     for (j = 0; j < indirect_alloc_cnt; ++j)
     {
-      if (temp2.sector[i] != 0)
-        free_map_release (temp.sector[i], 1);
+      if (temp2.sector[j] != 0)
+        free_map_release (temp.sector[j], 1);
     }
 
     /* Release indirect block */
@@ -528,7 +527,7 @@ inode_extend (struct inode_disk *disk_inode, size_t size)
   // size_t cnt_prev = bytes_to_sectors (disk_inode->length);
   /* Check actual allocation sectors in direct block */
 
-  size_t alloc_block_cnt = cnt < DIRECT_BLOCK_CNT ? cnt : DIRECT_BLOCK_CNT;
+  size_t alloc_block_cnt = cnt <= DIRECT_BLOCK_CNT ? cnt : DIRECT_BLOCK_CNT;
 
   /* Index for for-loop */
   size_t i, j;
@@ -553,7 +552,7 @@ inode_extend (struct inode_disk *disk_inode, size_t size)
   /* Indirect block case */
 
   /* Check actual allocation sectors in indirect block */
-  alloc_block_cnt = cnt < INDIRECT_CNT ? cnt : INDIRECT_CNT;
+  alloc_block_cnt = cnt <= INDIRECT_CNT ? cnt : INDIRECT_CNT;
   struct indirect_block temp;
   /* Check indirect block is allocated or not */
   if (disk_inode->indirect_idx == 0)
@@ -621,13 +620,13 @@ inode_extend (struct inode_disk *disk_inode, size_t size)
 
     for (j = 0; j < indirect_alloc_cnt; ++j)
     {
-      if (temp2.sector[i] == 0)
+      if (temp2.sector[j] == 0)
       {
-        if (!free_map_allocate (1, &temp2.sector[i]))
+        if (!free_map_allocate (1, &temp2.sector[j]))
         {
           return false;
         }
-        cache_write (temp2.sector[i], zeros, 0, DISK_SECTOR_SIZE);
+        cache_write (temp2.sector[j], zeros, 0, DISK_SECTOR_SIZE);
       }
     }
 

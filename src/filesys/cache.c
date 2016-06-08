@@ -72,8 +72,7 @@ cache_read (disk_sector_t idx, void *buffer, off_t ofs, size_t read_bytes)
   lock_acquire (&cache_lock);
 	struct cache_entry *temp = get_block (idx);
 	/* Acquire individual lock in cache block entry */
-	lock_acquire (&temp->block_lock);
-  lock_release (&cache_lock);
+	// lock_acquire (&temp->block_lock);
 
 	/* If block is not valid, read from disk to buffer cache */
 	if (!temp->is_valid)
@@ -84,7 +83,8 @@ cache_read (disk_sector_t idx, void *buffer, off_t ofs, size_t read_bytes)
 
 	/* Update accessed time stamp */
 	temp->time = time_stamp++;
-	lock_release (&temp->block_lock);
+	// lock_release (&temp->block_lock);
+	lock_release (&cache_lock);
 }
 
 void
@@ -95,8 +95,7 @@ cache_write (disk_sector_t idx, const void *buffer,
   lock_acquire (&cache_lock); 
 	struct cache_entry *temp = get_block (idx);
 	/* Acquire individual lock */
-	lock_acquire (&temp->block_lock);
-  lock_release (&cache_lock);
+	// lock_acquire (&temp->block_lock);
 
 	/* If block is not valid, read from disk to buffer cache */
 	if (!temp->is_valid)
@@ -111,7 +110,8 @@ cache_write (disk_sector_t idx, const void *buffer,
 
 	/* Update accessed time stamp */
 	temp->time = time_stamp++;
-	lock_release (&temp->block_lock);
+	// lock_release (&temp->block_lock);
+	lock_release (&cache_lock);
 }
 
 static struct cache_entry *
@@ -127,13 +127,10 @@ get_block (disk_sector_t idx)
 			break;
 		/* Find corresponding entry which is valid */
 		temp = &cache.cache_block[i];
-    lock_acquire (&temp->block_lock);
 		if (temp->is_valid && temp->idx == idx)
 		{
-      lock_release (&temp->block_lock);
 			return temp;
 		}
-    lock_release (&temp->block_lock);
 	}
 
 	/* Not found case */
@@ -151,13 +148,14 @@ get_block (disk_sector_t idx)
 	--cache.aval_size;
 
 	/* As block is changed, wait for previous block works to be done */
-	lock_acquire (&temp->block_lock);
+	// lock_acquire (&temp->block_lock);
+
 	/* Set index of block sector */
 	temp->idx = idx;
 
 
 	/* Release the cache lock */
-	lock_release (&temp->block_lock);
+	// lock_release (&temp->block_lock);
 	return temp;
 }
 
@@ -183,7 +181,7 @@ evict_block (void)
 	ASSERT (temp != NULL);
 
 	/* Wait block to be idle (as content of block to be changed) */
-	lock_acquire (&temp->block_lock);
+	// lock_acquire (&temp->block_lock);
 
 	/* Find victim block, if block is dirty write back */
 	if (temp->is_dirty)
@@ -198,7 +196,7 @@ evict_block (void)
 	/* Set invalid index */
 	temp->idx = -1;
 
-	lock_release (&temp->block_lock);
+	// lock_release (&temp->block_lock);
 	return temp;
 }
 
