@@ -13,8 +13,11 @@
 
 struct inode;
 
+/* Init for process's cwd */
+void dir_init (void);
+
 /* Opening and closing directories. */
-bool dir_create (disk_sector_t sector, size_t entry_cnt);
+bool dir_create (disk_sector_t sector, size_t entry_cnt, disk_sector_t parent);
 struct dir *dir_open (struct inode *);
 struct dir *dir_open_root (void);
 struct dir *dir_reopen (struct dir *);

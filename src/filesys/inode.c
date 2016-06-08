@@ -31,7 +31,11 @@ struct inode_disk
 
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
-    uint32_t unused[4];                 /* Reserved region */
+    bool is_dir;                    /* Is directory or not */
+    /* If inode is directory, indicate parent directory's sector */
+    disk_sector_t parent;
+    uint32_t unused[1];                 /* Reserved region */
+    uint8_t dummy[3];                   /* Reserved region */
   };
 
 /* On-disk indirect block,
@@ -162,9 +166,13 @@ inode_init (void)
    writes the new inode to sector SECTOR on the file system
    disk.
    Returns true if successful.
-   Returns false if memory or disk allocation fails. */
+   Returns false if memory or disk allocation fails.
+   is_dir indicate creation is directory creation,
+   with parent directory, if parent is 0 it means root dir or
+   regular file */
 bool
-inode_create (disk_sector_t sector, off_t length)
+inode_create (disk_sector_t sector, off_t length,
+              bool is_dir, disk_sector_t parent)
 {
   struct inode_disk *disk_inode = NULL;
   bool success = false;
@@ -180,6 +188,10 @@ inode_create (disk_sector_t sector, off_t length)
     {
       disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
+      disk_inode->is_dir = is_dir;
+      /* Set parent's inode if it is directory */
+      if (is_dir)
+        disk_inode->parent = parent;
       if (inode_idxed_create (disk_inode))
         {
           // disk_write (filesys_disk, sector, disk_inode);

@@ -96,6 +96,10 @@ start_process (void *f_name)
   if_.eflags = FLAG_IF | FLAG_MBS;
   /* Loads supplemental page table */
   vm_init_page ();
+
+  /* Set root directory to current working directory */
+  dir_init ();
+
   success = load (file_name, &if_.eip, &if_.esp);
   *is_load_success = success;
   sema_up (&st->synch);
