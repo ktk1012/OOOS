@@ -668,3 +668,15 @@ inode_extend (struct inode_disk *disk_inode, size_t size, off_t len)
 
   return true;
 }
+
+bool
+inode_is_dir (struct inode *inode)
+{
+  return inode->data.is_dir;
+}
+
+disk_sector_t
+inode_get_parent (struct inode *inode)
+{
+  return inode == NULL? 0: inode->data.parent;
+}

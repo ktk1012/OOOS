@@ -93,19 +93,21 @@ static int syscall_create (struct intr_frame *f, int *status)
     }
   if (strlen (file) > 14)
     return 0;
-  return filesys_create (file, initial_size);
+  return filesys_create (file, initial_size, false);
 }
 
 static int syscall_remove (struct intr_frame *f, int *status)
 {
   char *file = *(char **) (f->esp + 4);
-  if (file == NULL || !check_str (file, 14))
+  if (file == NULL || !check_str (file, PGSIZE))
     {
       *status = -1;
       return 0;
     }
-  if (strlen (file) > 14)
-    return 0;
+
+  if (strlen (file) == 0)
+    return false;
+
   return filesys_remove (file);
 }
 
@@ -118,12 +120,14 @@ static void syscall_exit (struct intr_frame *f)
 static int syscall_open (struct intr_frame *f, int *status)
 {
   char *file_name = *(char **) (f->esp + 4);
-  if (file_name == NULL || !check_str (file_name, 14))
+
+  if (file_name == NULL || !check_str (file_name, PGSIZE))
     {
       *status = -1;
       return -1;
     }
-  if (strlen (file_name) > 14)
+
+  if (strlen (file_name) == 0)
     return -1;
   return process_open (file_name);
 }
@@ -190,6 +194,38 @@ static int syscall_munmap (struct intr_frame *f)
 {
   mapid_t mid = *(mapid_t *) (f->esp + 4);
   return process_munmap (mid);
+}
+
+static int
+syscall_mkdir (struct intr_frame *f, int *status)
+{
+  char *dir_name = *(char **) (f->esp + 4);
+  if (dir_name == NULL || !check_str(dir_name, PGSIZE))
+  {
+    *status = -1;
+    return -1;
+  }
+
+  if (strlen (dir_name) == 0)
+    return false;
+
+  return filesys_create ((const char *) dir_name, 0, true);
+}
+
+static int
+syscall_chdir (struct intr_frame *f, int *status)
+{
+  char *dir_name = *(char **) (f->esp + 4);
+  if (dir_name == NULL || !check_str(dir_name, PGSIZE))
+  {
+    *status = -1;
+    return -1;
+  }
+
+  if (strlen (dir_name) == 0)
+    return false;
+
+  return filesys_chdir ((const char *) dir_name);
 }
 
 static int get_user (uint8_t *uaddr)
@@ -344,11 +380,19 @@ syscall_handler (struct intr_frame *f UNUSED)
         break;
 
       case SYS_CHDIR:
-      case SYS_MKDIR:
-      case SYS_READDIR:
-      case SYS_ISDIR:
-      case SYS_INUMBER:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        result = syscall_chdir (f, &return_status);
         break;
+      case SYS_MKDIR:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        result = syscall_mkdir (f, &return_status);
+        break;
+//      case SYS_READDIR:
+//      case SYS_ISDIR:
+//      case SYS_INUMBER:
+//        break;
     }
 
   /* Reset esp context */

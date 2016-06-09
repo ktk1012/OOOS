@@ -27,6 +27,7 @@ int process_close (int fd);
 int process_mmap (int fd, void *addr);
 int process_munmap (mapid_t mid);
 
+
 /* Load helpers */
 bool install_page (void *upage, void *kpage, bool writable);
 
