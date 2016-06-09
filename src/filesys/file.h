@@ -2,6 +2,7 @@
 #define FILESYS_FILE_H
 
 #include "filesys/off_t.h"
+#include <stdbool.h>
 
 struct inode;
 
@@ -26,4 +27,6 @@ void file_seek (struct file *, off_t);
 off_t file_tell (struct file *);
 off_t file_length (struct file *);
 
+bool file_isdir (struct file *);
+int file_get_inumber (struct file *);
 #endif /* filesys/file.h */

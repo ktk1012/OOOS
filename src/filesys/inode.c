@@ -5,6 +5,7 @@
 #include <string.h>
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
+#include "filesys/directory.h"
 #include "threads/malloc.h"
 #include "filesys/cache.h"
 #include "threads/synch.h"
@@ -184,14 +185,16 @@ inode_create (disk_sector_t sector, off_t length,
       disk_inode->magic = INODE_MAGIC;
       disk_inode->is_dir = is_dir;
       /* Set parent's inode if it is directory */
-      if (is_dir)
-        disk_inode->parent = parent;
       if (inode_idxed_create (disk_inode))
         {
           // disk_write (filesys_disk, sector, disk_inode);
           cache_write (sector, disk_inode, 0, DISK_SECTOR_SIZE);
           success = true;
-        } 
+        }
+      /* Check this inode is directory */
+      if (is_dir)
+        disk_inode->parent = parent;
+
       free (disk_inode);
     }
   return success;
@@ -679,4 +682,10 @@ disk_sector_t
 inode_get_parent (struct inode *inode)
 {
   return inode == NULL? 0: inode->data.parent;
+}
+
+bool
+inode_isroot (struct inode *inode)
+{
+  return inode->sector == ROOT_DIR_SECTOR;
 }

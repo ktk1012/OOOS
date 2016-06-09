@@ -77,6 +77,15 @@ filesys_create (const char *name, off_t initial_size, bool is_dir)
   if (!success && inode_sector != 0)
     free_map_release (inode_sector, 1);
 
+  /* If directory, add '.' and '..' */
+  if (success && inode_sector != 0 && is_dir)
+  {
+    struct dir *dir_own = dir_open (inode_open (inode_sector));
+    dir_add (dir_own, ".", inode_sector);
+    dir_add (dir_own, "..", parent_sector);
+    dir_close (dir_own);
+  }
+
 done:
   dir_close (dir);
   free (file_name);
@@ -98,6 +107,7 @@ filesys_open (const char *name)
 
   if (dir != NULL)
     dir_lookup (dir, file_name, &inode);
+
   dir_close (dir);
   free (file_name);
 
@@ -154,8 +164,12 @@ do_format (void)
 {
   printf ("Formatting file system...");
   free_map_create ();
-  if (!dir_create (ROOT_DIR_SECTOR, 16, NULL))
+  if (!dir_create (ROOT_DIR_SECTOR, 16, ROOT_DIR_SECTOR))
     PANIC ("root directory creation failed");
+  /* Open root directory and add '.' and '..' entry */
+  struct dir *root_dir = dir_open (inode_open (ROOT_DIR_SECTOR));
+  dir_add (root_dir, ".", ROOT_DIR_SECTOR);
+  dir_add (root_dir, "..", ROOT_DIR_SECTOR);
   free_map_close ();
   printf ("done.\n");
 }

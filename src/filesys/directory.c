@@ -89,6 +89,10 @@ dir_parse_name (const char *path)
   for (token = strtok_r (path_copy, "/", &save_ptr); token != NULL;
        token = strtok_r (NULL, "/", &save_ptr))
     f_name = token;
+
+  if (!f_name)
+    f_name = ".";
+
   char *name = malloc (strlen (f_name) + 1);
   if (!name)
     return NULL;
@@ -100,16 +104,10 @@ dir_parse_name (const char *path)
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
-dir_create (disk_sector_t sector, size_t entry_cnt, struct dir *parent)
+dir_create (disk_sector_t sector, size_t entry_cnt, disk_sector_t parent)
 {
-  disk_sector_t parent_sector;
-  if (parent)
-    parent_sector = inode_get_parent (dir_get_inode(parent));
-  else
-    parent_sector = sector;   /* Root directory */
-
   return inode_create (sector, entry_cnt * sizeof (struct dir_entry),
-                       true, parent_sector);
+                       true, parent);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -121,7 +119,7 @@ dir_open (struct inode *inode)
   if (inode != NULL && dir != NULL)
     {
       dir->inode = inode;
-      dir->pos = 0;
+      dir->pos = 2 * sizeof (struct dir_entry);
       return dir;
     }
   else
@@ -286,6 +284,10 @@ dir_remove (struct dir *dir, const char *name)
   if (inode == NULL)
     goto done;
 
+  /* If inode sector is root directory sector reject it */
+  if (inode_isroot (inode))
+    goto done;
+
   /* If inode is directory and not empry, reject it */
   if (inode_is_dir (inode))
   {
@@ -323,6 +325,8 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
       dir->pos += sizeof e;
+      if (!strcmp (e.name, ".") || !strcmp (e.name, ".."))
+        continue;
       if (e.in_use)
         {
           strlcpy (name, e.name, NAME_MAX + 1);

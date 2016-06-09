@@ -684,6 +684,8 @@ clear_resources (void)
   {
     fe = list_entry (list_pop_front (&curr->files),
                      struct fd_entry, elem);
+    if (fe->dir)
+      dir_close (fe->dir);
     file_close (fe->file);
     free (fe);
   }
@@ -716,6 +718,11 @@ int process_open (const char *file)
   struct fd_entry *fe = malloc (sizeof (struct fd_entry));
   fe->file = f;
   fe->fd = curr->fd_next++;
+  if (file_isdir (f))
+    fe->dir = dir_open (file_get_inode (f));
+  else
+    fe->dir = NULL;
+
   list_push_back (&curr->files, &fe->elem);
   return fe->fd;
 }
@@ -846,3 +853,35 @@ int process_munmap (mapid_t mid)
   return 0;
 }
 
+bool process_readdir (int fd, char *name)
+{
+  struct fd_entry *fe = get_fd_entry (fd);
+
+  if (fe == NULL)
+    return false;
+
+  if (!file_isdir (fe->file))
+    return false;
+
+  return dir_readdir (fe->dir, name);
+}
+
+bool process_isdir (int fd)
+{
+  struct fd_entry *fe = get_fd_entry (fd);
+
+  if (fe == NULL)
+    return false;
+
+  return file_isdir (fe->file);
+}
+
+int process_inumber (int fd)
+{
+  struct fd_entry *fe = get_fd_entry (fd);
+
+  if (fe == NULL)
+    return -1;
+
+  return file_get_inumber (fe->file);
+}

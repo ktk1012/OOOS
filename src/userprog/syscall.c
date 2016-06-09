@@ -228,6 +228,33 @@ syscall_chdir (struct intr_frame *f, int *status)
   return filesys_chdir ((const char *) dir_name);
 }
 
+static int
+syscall_readdir (struct intr_frame *f, int *status)
+{
+  int fd = *(int *) (f->esp + 4);
+  char *name = *(char **) (f->esp + 8);
+  if (name == NULL || !check_str (name, 14))
+  {
+    *status = -1;
+    return -1;
+  }
+  return process_readdir (fd, name);
+}
+
+static int
+syscall_isdir (struct intr_frame *f)
+{
+  int fd = *(int *) (f->esp +4);
+  return process_isdir (fd);
+}
+
+static int
+syscall_inumber (struct intr_frame *f)
+{
+  int fd = *(int *) (f->esp +4);
+  return process_inumber (fd);
+}
+
 static int get_user (uint8_t *uaddr)
 {
   int result;
@@ -389,10 +416,21 @@ syscall_handler (struct intr_frame *f UNUSED)
           goto bad_arg;
         result = syscall_mkdir (f, &return_status);
         break;
-//      case SYS_READDIR:
-//      case SYS_ISDIR:
-//      case SYS_INUMBER:
-//        break;
+      case SYS_READDIR:
+        if (!check_arguments (f->esp + 4, 8))
+          goto bad_arg;
+        result = syscall_readdir (f, &return_status);
+        break;
+      case SYS_ISDIR:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        result = syscall_isdir (f);
+        break;
+      case SYS_INUMBER:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        result = syscall_inumber (f);
+        break;
     }
 
   /* Reset esp context */
