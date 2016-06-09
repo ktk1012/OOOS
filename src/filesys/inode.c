@@ -47,29 +47,6 @@ struct indirect_block
 };
 
 
-/* enum type of index type */
-enum idx_type
-{
-  DIRECT,
-  INDIRECT,
-  DOUBLE_INDIRECT
-};
-
-/* Sector index structure
- * To use for indicate direct / indirect/ doubly indirect block */
-struct idx_entry
-{
-  enum idx_type type;
-  /* First hierarchy index of block
-   * (index of direct index, index of indirect index,
-   * index pointer for doubly indirect index) */
-  disk_sector_t first_idx;
-  /* Second hierarchy index of block
-   * (index of block of first index of indirect block,
-   * index of doubly indirect block) */
-  disk_sector_t second_idx;
-};
-
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */
 static inline size_t
@@ -95,20 +72,29 @@ struct inode
 /* Returns the disk sector that contains index offset idx within
  * inode_disk */
 static disk_sector_t
-idx_to_sector (const struct inode_disk *inode_disk, size_t idx)
+idx_to_sector (const struct inode_disk *inode_disk, size_t idx,
+               disk_sector_t *idx_ahead)
 {
   /* First, check index is in direct block region */
   if (idx < DIRECT_BLOCK_CNT)
+  {
+    if (idx != DIRECT_BLOCK_CNT - 1 && idx_ahead != NULL)
+      *idx_ahead = inode_disk->direct_idx[idx + 1];
     return inode_disk->direct_idx[idx];
+  }
   else if (idx < DIRECT_BLOCK_CNT + INDIRECT_CNT)
   {
     /* Second, check index is in indirect block region */
     /* Read indirect block from disk */
     idx -= DIRECT_BLOCK_CNT;
     /* Read index position in cache block */
-    disk_sector_t result;
-    cache_read (inode_disk->indirect_idx, &result, idx * 4, 4);
-    return result;
+    struct indirect_block temp;
+    cache_read (inode_disk->indirect_idx, &temp, 0, DISK_SECTOR_SIZE);
+    /* If idx is not end of indirect block array, set read ahead index */
+    if (idx != INDIRECT_CNT -1 && idx_ahead != NULL)
+      *idx_ahead = temp.sector[idx + 1];
+
+    return temp.sector[idx];
   }
   else
   {
@@ -118,10 +104,14 @@ idx_to_sector (const struct inode_disk *inode_disk, size_t idx)
     disk_sector_t indirect_idx = idx / INDIRECT_CNT;
     disk_sector_t indirect_ofs = idx % INDIRECT_CNT;
     /* Read first indirect block and, corresponding second block */
-    disk_sector_t temp, result;
-    cache_read (inode_disk->db_indirect_idx, &temp, indirect_idx * 4, 4);
-    cache_read (temp, &result, indirect_ofs * 4, 4);
-    return result;
+    struct indirect_block temp1, temp2;
+    cache_read (inode_disk->db_indirect_idx, &temp1, 0, DISK_SECTOR_SIZE);
+    cache_read (temp1.sector[indirect_idx], &temp2, 0, DISK_SECTOR_SIZE);
+    /* If indirect ofs is not end of indirect block, set read ahead index */
+    if (indirect_ofs < INDIRECT_CNT - 1 && idx_ahead != NULL)
+      *idx_ahead = temp2.sector[indirect_ofs + 1];
+
+    return temp2.sector[indirect_ofs];
   }
 }
 
@@ -129,15 +119,18 @@ idx_to_sector (const struct inode_disk *inode_disk, size_t idx)
 /* Returns the disk sector that contains byte offset POS within
    INODE.
    Returns -1 if INODE does not contain data for a byte at offset
+   If idx_ahead is not NULL, idx_ahead contains next block of file
+   with given index
    POS. */
 static disk_sector_t
-byte_to_sector (const struct inode *inode, off_t pos) 
+byte_to_sector (const struct inode *inode, off_t pos,
+                off_t len, disk_sector_t *idx_ahead)
 {
   ASSERT (inode != NULL);
-  if (0 <= pos && pos < inode->data.length)
+  if (0 <= pos && pos < len)
   {
     size_t idx = pos / DISK_SECTOR_SIZE;
-    return idx_to_sector (&inode->data, idx);
+    return idx_to_sector (&inode->data, idx, idx_ahead);
   }
   else
     return -1;
@@ -152,7 +145,8 @@ static off_t inode_set_length (struct inode *inode, off_t size);
 /* internal functions for handling indexed file structure */
 static bool inode_idxed_create (struct inode_disk *disk_inode);
 static void inode_idxed_remove (struct inode_disk *disk_inode, size_t size);
-static bool inode_extend (struct inode_disk *disk_inode, size_t size);
+static bool inode_extend (struct inode_disk *disk_inode,
+                          size_t size, off_t len);
 
 
 /* Initializes the inode module. */
@@ -306,8 +300,10 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
 
   while (size > 0)
   {
+      disk_sector_t ahead_idx = 0;
       /* Disk sector to read, starting byte offset within sector. */
-      disk_sector_t sector_idx = byte_to_sector (inode, offset);
+      disk_sector_t sector_idx = byte_to_sector (inode, offset, len,
+                                                 &ahead_idx);
       int sector_ofs = offset % DISK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
@@ -319,6 +315,9 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       int chunk_size = size < min_left ? size : min_left;
       if (chunk_size <= 0)
         break;
+
+      /* Dispatch read ahead with given ahead_idx */
+      // cache_read_ahead_append (ahead_idx);
 
       /* Read data from buffer cache */
       cache_read (sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
@@ -351,15 +350,16 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   /* If size + offset is larger than original size, extend it */
   if (size + offset > inode->data.length)
   {
-    inode_extend (&inode->data, offset + size);
+    lock_acquire (&inode->inode_lock);
+    inode_extend (&inode->data, offset + size, len);
     len = inode_set_length (inode, offset + size);
-    cache_write (inode->sector, &inode->data, 0, DISK_SECTOR_SIZE);
+    lock_release (&inode->inode_lock);
   }
 
   while (size > 0)
   {
       /* Sector to write, starting byte offset within sector. */
-      disk_sector_t sector_idx = byte_to_sector (inode, offset);
+      disk_sector_t sector_idx = byte_to_sector (inode, offset, len, NULL);
       int sector_ofs = offset % DISK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
@@ -420,9 +420,9 @@ inode_length (struct inode *inode)
 static off_t
 inode_set_length (struct inode *inode, off_t size)
 {
-  lock_acquire (&inode->inode_lock);
   inode->data.length = size;
-  lock_release (&inode->inode_lock);
+  /* Update inode's meta data */
+  cache_write (inode->sector, &inode->data, 0, DISK_SECTOR_SIZE);
   return size;
 }
 
@@ -431,7 +431,7 @@ static bool
 inode_idxed_create (struct inode_disk *disk_inode)
 {
   size_t size = disk_inode->length;
-  return inode_extend (disk_inode, size);
+  return inode_extend (disk_inode, size, 0);
 }
 
 
@@ -531,11 +531,14 @@ inode_idxed_remove (struct inode_disk *disk_inode, size_t size)
  * index is 0 (which means not allocated yet), allocate it.
  * If anyway fail, return false */
 static bool
-inode_extend (struct inode_disk *disk_inode, size_t size)
+inode_extend (struct inode_disk *disk_inode, size_t size, off_t len)
 {
   /* Zero filled buffer */
   static char zeros[DISK_SECTOR_SIZE];
+  /* Block count for total allocation (contains perviously allocated block) */
   size_t cnt = bytes_to_sectors (size);
+  /* Previously allocated block count (use for short cuircuiting) */
+  int cnt_prev = bytes_to_sectors (len);
   // size_t cnt_prev = bytes_to_sectors (disk_inode->length);
   /* Check actual allocation sectors in direct block */
 
@@ -545,6 +548,11 @@ inode_extend (struct inode_disk *disk_inode, size_t size)
   size_t i, j;
   for (i = 0; i < alloc_block_cnt; ++i)
   {
+    if (cnt_prev-- > 0)
+    {
+      --cnt;
+      continue;
+    }
     /* If corresponding region is not allocated, allocate it */
     if (disk_inode->direct_idx[i] == 0)
     {
@@ -579,6 +587,11 @@ inode_extend (struct inode_disk *disk_inode, size_t size)
   cache_read (disk_inode->indirect_idx, &temp, 0, DISK_SECTOR_SIZE);
   for (i = 0; i < alloc_block_cnt; ++i)
   {
+    if (cnt_prev-- > 0)
+    {
+      --cnt;
+      continue;
+    }
     if (temp.sector[i] == 0)
     {
       if (!free_map_allocate (1, &temp.sector[i]))
@@ -632,6 +645,11 @@ inode_extend (struct inode_disk *disk_inode, size_t size)
 
     for (j = 0; j < indirect_alloc_cnt; ++j)
     {
+      if (cnt_prev-- > 0)
+      {
+        --cnt;
+        continue;
+      }
       if (temp2.sector[j] == 0)
       {
         if (!free_map_allocate (1, &temp2.sector[j]))

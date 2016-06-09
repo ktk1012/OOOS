@@ -7,20 +7,18 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 
-/* A directory. */
-struct dir 
-  {
-    struct inode *inode;                /* Backing store. */
-    off_t pos;                          /* Current position. */
-  };
 
-/* A single directory entry. */
-struct dir_entry 
-  {
-    disk_sector_t inode_sector;         /* Sector number of header. */
-    char name[NAME_MAX + 1];            /* Null terminated file name. */
-    bool in_use;                        /* In use or free? */
-  };
+/* Parsing given path name */
+static bool
+parse_path (const char *dir, struct dir *cwd)
+{
+  char dir_copy[strlen (dir) + 1];
+  strlcpy (dir_copy, dir, strlen (dir));
+  char *token, *save_ptr;
+  token = strtok_r (dir_copy, "/", &save_ptr);
+  /* Handle in three cases, '/', './', '../' */
+  return false;
+}
 
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */

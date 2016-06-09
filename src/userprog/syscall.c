@@ -54,6 +54,12 @@ static int syscall_tell (struct intr_frame *f);
 static int syscall_close (struct intr_frame *f);
 static int syscall_mmap (struct intr_frame *f);
 static int syscall_munmap (struct intr_frame *f);
+// For filesys
+static int syscall_chdir (struct intr_frame *f, int *status);
+static int syscall_mkdir (struct intr_frame *f, int *status);
+static int syscall_readdir (struct intr_frame *f, int *status);
+static int syscall_isdir (struct intr_frame *f);
+static int syscall_inumber (struct intr_frame *f);
 /***************************************************/
 
 static int syscall_wait (struct intr_frame *f)
@@ -337,6 +343,12 @@ syscall_handler (struct intr_frame *f UNUSED)
         // //lock_release (&filesys_lock);
         break;
 
+      case SYS_CHDIR:
+      case SYS_MKDIR:
+      case SYS_READDIR:
+      case SYS_ISDIR:
+      case SYS_INUMBER:
+        break;
     }
 
   /* Reset esp context */

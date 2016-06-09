@@ -23,6 +23,7 @@ struct cache
 static struct lock cache_lock;
 static struct cache cache;
 
+
 /* Find cache block */
 static struct cache_entry *get_block (disk_sector_t idx);
 /* Eviction */
@@ -31,6 +32,15 @@ static struct cache_entry *evict_block (void);
 static void cache_refresh (void);
 /* Periodically flushes all dirty blocks */
 static void cache_periodic_refresh (void *aux UNUSED);
+
+/* For read ahead code */
+static struct list read_ahead_list;
+/* Condition variable and lock for waiting read ahead structure */
+static struct condition cond_read_ahead;
+static struct lock lock_read_ahead;
+
+static void cache_read_ahead_demon (void *aux UNUSED);
+static void cache_add (disk_sector_t idx);
 
 
 void
@@ -50,7 +60,13 @@ cache_init (void)
 	/* Make new thread for periodically refresh the dirty cache blocks */
 	struct semaphore sem;
 	sema_init (&sem, 0);
-	thread_create ("refresh", PRI_MIN, cache_periodic_refresh, (void *)&sem);
+	thread_create ("refresh", PRI_DEFAULT, cache_periodic_refresh, (void *)&sem);
+	sema_down (&sem);
+	/* Initialize read ahead demon */
+	list_init (&read_ahead_list);
+	lock_init (&lock_read_ahead);
+	cond_init (&cond_read_ahead);
+	thread_create ("read_ahead", PRI_DEFAULT, cache_read_ahead_demon, (void *)&sem);
 	sema_down (&sem);
 }
 
@@ -111,6 +127,23 @@ cache_write (disk_sector_t idx, const void *buffer,
 	/* Update accessed time stamp */
 	temp->time = time_stamp++;
 	// lock_release (&temp->block_lock);
+	lock_release (&cache_lock);
+}
+
+static void
+cache_add (disk_sector_t idx)
+{
+	lock_acquire (&cache_lock);
+	struct cache_entry *temp = get_block (idx);
+	/* Read from disk if invalid */
+	if (!temp->is_valid)
+	{
+		disk_read(filesys_disk, idx, temp->buffer);
+		temp->is_dirty = false;
+	}
+
+	temp->is_valid = true;
+	temp->time = time_stamp++;
 	lock_release (&cache_lock);
 }
 
@@ -222,9 +255,59 @@ cache_periodic_refresh (void *aux UNUSED)
 	sema_up ((struct semaphore *)sem);
 	while (1)
 	{
+		timer_usleep (40000);
+		// printf ("periodic !\n");
     lock_acquire (&cache_lock);
 		cache_refresh ();
     lock_release (&cache_lock);
-		timer_sleep (TIMER_FREQ * 4);
 	}
+}
+
+struct ahead_entry
+{
+	disk_sector_t idx;
+	struct list_elem elem;
+};
+
+
+static void
+cache_read_ahead_demon (void *aux UNUSED)
+{
+	struct semaphore *sem = aux;
+	sema_up ((struct semaphore *)sem);
+	while (1)
+	{
+		timer_usleep (20000);
+		// printf ("read_ahead demon!!\n");
+		/* sleep for some periodic times */
+		lock_acquire (&lock_read_ahead);
+		while (list_empty (&read_ahead_list))
+			cond_wait (&cond_read_ahead, &lock_read_ahead);
+		while (!list_empty (&read_ahead_list))
+		{
+			struct list_elem *e;
+			e = list_pop_front (&read_ahead_list);
+			struct ahead_entry *temp = list_entry (e, struct ahead_entry, elem);
+			cache_add (temp->idx);
+			free (temp);
+		}
+		lock_release (&lock_read_ahead);
+	}
+}
+
+void cache_read_ahead_append (disk_sector_t idx)
+{
+	if (!idx)
+		return;
+
+	/* Allocate new wait entry */
+	struct ahead_entry *wait_entry = malloc (sizeof (struct ahead_entry));
+	if (wait_entry == NULL)
+		return;
+
+	wait_entry->idx = idx;
+	lock_acquire (&lock_read_ahead);
+	list_push_back (&read_ahead_list, &wait_entry->elem);
+	cond_signal (&cond_read_ahead, &lock_read_ahead);
+	lock_release (&lock_read_ahead);
 }

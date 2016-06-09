@@ -359,13 +359,13 @@ thread_set_priority (int new_priority)
   t->priority_origin = new_priority;
 
   //t->priority = new_priority;
-  thread_priority_update ();
-  if (priority_prev < t->priority)
-    {
-      if (!thread_mlfqs)
-        thread_donate_priority ();
-    }
-  else if (priority_prev > t->priority)
+  // thread_priority_update ();
+//  if (priority_prev < t->priority)
+//    {
+//      // if (!thread_mlfqs)
+//        // thread_donate_priority ();
+//    }
+  if (priority_prev > t->priority)
     thread_check_yield ();
   intr_set_level (old_level);
 }

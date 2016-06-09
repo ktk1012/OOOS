@@ -227,7 +227,7 @@ lock_acquire (struct lock *lock)
   if (!thread_mlfqs)
     {
       t->lock_waiting = lock;
-      thread_donate_priority ();
+      // thread_donate_priority ();
     }
   sema_down (&lock->semaphore);
 
@@ -273,8 +273,8 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   enum intr_level old_level = intr_disable ();
 
-  if (!thread_mlfqs)
-    thread_reset_donation (lock);
+//  if (!thread_mlfqs)
+//    thread_reset_donation (lock);
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);

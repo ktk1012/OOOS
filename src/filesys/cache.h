@@ -29,4 +29,6 @@ void cache_read (disk_sector_t idx, void *buffer, off_t ofs, size_t read_bytes);
 void cache_write (disk_sector_t idx, const void *buffer,
                   off_t ofs, size_t write_bytes);
 
+void cache_read_ahead_append (disk_sector_t idx);
+
 #endif //FILESYS_CACHE_H
