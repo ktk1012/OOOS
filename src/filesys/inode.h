@@ -21,6 +21,7 @@ void inode_allow_write (struct inode *);
 off_t inode_length (struct inode *);
 bool inode_is_dir (struct inode *inode);
 bool inode_isroot (struct inode *inode);
+bool inode_isremoved (struct inode *inode);
 
 disk_sector_t inode_get_parent (struct inode *inode);
 

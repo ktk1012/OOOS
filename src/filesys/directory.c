@@ -90,7 +90,7 @@ dir_parse_name (const char *path)
        token = strtok_r (NULL, "/", &save_ptr))
     f_name = token;
 
-  if (!f_name)
+  if (!f_name || !strlen (f_name))
     f_name = ".";
 
   char *name = malloc (strlen (f_name) + 1);

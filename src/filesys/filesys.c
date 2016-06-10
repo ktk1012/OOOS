@@ -66,6 +66,14 @@ filesys_create (const char *name, off_t initial_size, bool is_dir)
     goto done;
   }
 
+  /* Check directory is removed */
+  if (inode_isremoved (dir->inode))
+  {
+    dir_close (dir);
+    free (file_name);
+    return NULL;
+  }
+
   disk_sector_t parent_sector = 0;
   if (is_dir)
     parent_sector = inode_get_parent (dir_get_inode (dir));
@@ -107,7 +115,16 @@ filesys_open (const char *name)
   struct inode *inode = NULL;
 
   if (dir != NULL)
+  {
+    /* Check directory is removed */
+    if (inode_isremoved (dir->inode))
+    {
+      dir_close (dir);
+      free (file_name);
+      return NULL;
+    }
     dir_lookup (dir, file_name, &inode);
+  }
 
   dir_close (dir);
   free (file_name);

@@ -689,3 +689,9 @@ inode_isroot (struct inode *inode)
 {
   return inode->sector == ROOT_DIR_SECTOR;
 }
+
+bool
+inode_isremoved (struct inode *inode)
+{
+  return inode->removed;
+}
