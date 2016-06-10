@@ -693,5 +693,8 @@ inode_isroot (struct inode *inode)
 bool
 inode_isremoved (struct inode *inode)
 {
+  if (inode == NULL)
+    return true;
+
   return inode->removed;
 }

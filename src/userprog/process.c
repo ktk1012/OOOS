@@ -793,6 +793,9 @@ int process_close (int fd)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
+  file_close (fe->file);
+  if (fe->dir)
+    dir_close (fe->dir);
   list_remove (&fe->elem);
   free (fe);
   return 0;
