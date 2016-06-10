@@ -74,10 +74,8 @@ cache_init (void)
 void
 cache_done (void)
 {
-	lock_acquire (&cache_lock);
 	bitmap_destroy (cache.free_map);
 	cache_refresh ();
-	lock_release (&cache_lock);
 }
 
 
