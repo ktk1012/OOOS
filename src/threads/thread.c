@@ -15,6 +15,7 @@
 #include "userprog/process.h"
 #endif
 #include "threads/fixed_point.h"
+#include "filesys/filesys.h"
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -114,7 +115,7 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-  initial_thread->cwd = NULL;
+  initial_thread->cwd = ROOT_DIR_SECTOR;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -230,10 +231,7 @@ thread_create (const char *name, int priority,
 #endif
 
   /* Inherit current working directory */
-  if (thread_current ()->cwd)
-    t->cwd = dir_reopen (thread_current ()->cwd);
-  else
-    t->cwd = NULL;
+  t->cwd = thread_current ()->cwd;
 
 
   /* Add to run queue. */

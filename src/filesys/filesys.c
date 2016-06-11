@@ -52,9 +52,7 @@ bool
 filesys_create (const char *name, off_t initial_size, bool is_dir)
 {
   disk_sector_t inode_sector = 0;
-  struct dir *dir;
-
-  dir = dir_open_path (name);
+  struct dir *dir = dir_open_path (name);
   char *file_name = dir_parse_name (name);
   bool success = false;
 
@@ -69,19 +67,19 @@ filesys_create (const char *name, off_t initial_size, bool is_dir)
   /* Check directory is removed */
   if (inode_isremoved (dir->inode))
   {
-    dir_close (dir);
-    free (file_name);
-    return NULL;
+    success =false;
+    goto done;
   }
 
   disk_sector_t parent_sector = 0;
   if (is_dir)
-    parent_sector = inode_get_parent (dir_get_inode (dir));
+    parent_sector = inode_get_inumber (dir->inode);
 
   success = (dir != NULL
              && free_map_allocate (1, &inode_sector)
              && inode_create (inode_sector, initial_size, is_dir, parent_sector)
              && dir_add (dir, file_name, inode_sector));
+
 
   if (!success && inode_sector != 0)
     free_map_release (inode_sector, 1);
@@ -152,7 +150,7 @@ filesys_chdir (const char *name)
   /* Check inode is directory */
   if (inode_is_dir (inode))
   {
-    thread_current ()->cwd = dir_open (inode);
+    thread_current ()->cwd = inode_get_inumber (inode);
     success = true;
   }
 
@@ -170,8 +168,10 @@ filesys_remove (const char *name)
 {
   struct dir *dir = dir_open_path (name);
   char *file_name = dir_parse_name (name);
+
   bool success = dir != NULL && dir_remove (dir, file_name);
-  dir_close (dir); 
+  dir_close (dir);
+  free (file_name);
 
   return success;
 }

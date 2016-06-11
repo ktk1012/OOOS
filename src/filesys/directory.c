@@ -8,7 +8,6 @@
 #include "threads/malloc.h"
 
 
-
 /* Parse given path, and return file name and containing directory */
 struct dir *
 dir_open_path (const char *path)
@@ -25,11 +24,7 @@ dir_open_path (const char *path)
   struct inode *inode_temp;
 
   /* Find cwd */
-  struct dir *cwd = thread_current ()->cwd;
-  if (cwd)
-    cwd = dir_reopen (cwd);
-  else
-    cwd = dir_open_root ();
+  disk_sector_t cwd = thread_current ()->cwd;
 
   /* If path start with '/', open root directory, else open relatively */
   if (dir_copy[0] == '/')
@@ -39,24 +34,18 @@ dir_open_path (const char *path)
     strlcpy (dir_copy, path + 1, strlen (path));
   }
   else
-    dir = dir_reopen (cwd);
+    dir = dir_open(inode_open (cwd));
+
 
   path_next = strtok_r (dir_copy, "/", &save_ptr);
 
   for (token = strtok_r (NULL, "/", &save_ptr); token != NULL;)
   {
-    //printf ("path_next: %s\n", path_next);
     if (strlen (path_next) == 0)
       continue;
 
     if (!strcmp (path_next, "./"))
       continue;
-
-    if (!strcmp (path_next, "../"))
-    {
-      // Open parent directory
-    }
-
 
     if (!dir_lookup (dir, path_next, &inode_temp) ||
         !inode_is_dir (inode_temp))
@@ -119,7 +108,7 @@ dir_open (struct inode *inode)
   if (inode != NULL && dir != NULL)
     {
       dir->inode = inode;
-      dir->pos = 2 * sizeof (struct dir_entry);
+      dir->pos = 0;
       return dir;
     }
   else
@@ -173,7 +162,6 @@ static bool
 lookup (const struct dir *dir, const char *name,
         struct dir_entry *ep, off_t *ofsp) 
 {
-  //printf ("lookup: %s\n", name);
   struct dir_entry e;
   size_t ofs;
   
@@ -182,7 +170,6 @@ lookup (const struct dir *dir, const char *name,
 
   for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) {
-//    printf ("e: %s, %d\n", e.name, e.in_use ? 1 : 0);
     if (e.in_use && !strcmp(name, e.name)) {
       if (ep != NULL)
         *ep = e;
@@ -336,17 +323,15 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
   return false;
 }
 
-/* Initialization */
-void dir_init (void)
-{
-  thread_current ()->cwd = dir_open_root ();
-}
-
 bool
 dir_is_empty (struct dir *dir)
 {
   struct dir_entry e;
-  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e)
+  off_t ofs;
+  /* As first two entry is self pointer and parent, set it to 2 * sizeof e */
+  for (ofs = 2 * sizeof e;
+       inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+       ofs += sizeof e)
   {
     dir->pos += sizeof e;
     if (e.in_use)

@@ -97,9 +97,9 @@ start_process (void *f_name)
   /* Loads supplemental page table */
   vm_init_page ();
 
-  /* If inherit NULL open root */
-  if (thread_current ()->cwd == NULL)
-    dir_init ();
+//  /* If inherit NULL open root */
+//  if (thread_current ()->cwd == NULL)
+//    dir_init ();
 
   success = load (file_name, &if_.eip, &if_.esp);
   *is_load_success = success;

@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include "threads/synch.h"
 
+#include "devices/disk.h"
 #include "filesys/directory.h"
 
 /* States in a thread's life cycle. */
@@ -156,7 +157,7 @@ struct thread
     int mapid_next;                     /* mapid_t that to be allocated */
 
     /* For sub directory operations */
-    struct dir *cwd;                    /* Current working directory */
+    disk_sector_t cwd;                    /* Current working directory */
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */

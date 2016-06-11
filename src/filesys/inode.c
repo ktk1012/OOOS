@@ -698,3 +698,4 @@ inode_isremoved (struct inode *inode)
 
   return inode->removed;
 }
+
