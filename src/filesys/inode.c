@@ -279,6 +279,11 @@ inode_close (struct inode *inode)
           /* free_map_release (inode->data.start,
                             bytes_to_sectors (inode->data.length)); */
         }
+      /* Write back to inode's new information */
+      else
+      {
+        disk_write (filesys_disk, inode->sector, &inode->data);
+      }
 
       free (inode); 
     }

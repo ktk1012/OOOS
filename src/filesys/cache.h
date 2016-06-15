@@ -32,4 +32,6 @@ void cache_write (disk_sector_t idx, const void *buffer,
 
 void cache_read_ahead_append (disk_sector_t idx);
 
+// void cache_remove (disk_sector_t idx);
+
 #endif //FILESYS_CACHE_H

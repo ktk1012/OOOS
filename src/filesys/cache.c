@@ -322,10 +322,10 @@ cache_read_ahead_demon (void *aux UNUSED)
 
 		while (!list_empty (&read_ahead_list))
 		{
-      lock_acquire (&lock_read_ahead);
 			struct list_elem *e;
-      lock_release (&lock_read_ahead);
+      lock_acquire (&lock_read_ahead);
 			e = list_pop_front (&read_ahead_list);
+      lock_release (&lock_read_ahead);
 			struct ahead_entry *temp = list_entry (e, struct ahead_entry, elem);
 			cache_add (temp->idx);
 			free (temp);
