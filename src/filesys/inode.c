@@ -66,6 +66,7 @@ struct inode
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /* Inode content. */
     struct lock inode_lock;             /* Inode lock */
+    struct lock dir_lock;
   };
 
 
@@ -233,6 +234,7 @@ inode_open (disk_sector_t sector)
   inode->deny_write_cnt = 0;
   inode->removed = false;
   lock_init (&inode->inode_lock);
+  lock_init (&inode->dir_lock);
   cache_read (inode->sector, &inode->data, 0, DISK_SECTOR_SIZE);
   return inode;
 }
@@ -272,10 +274,10 @@ inode_close (struct inode *inode)
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
+          inode_idxed_remove (&inode->data, inode->data.length);
           free_map_release (inode->sector, 1);
           /* free_map_release (inode->data.start,
                             bytes_to_sectors (inode->data.length)); */
-          inode_idxed_remove (&inode->data, inode->data.length);
         }
 
       free (inode); 
@@ -320,7 +322,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
         break;
 
       /* Dispatch read ahead with given ahead_idx */
-      // cache_read_ahead_append (ahead_idx);
+      cache_read_ahead_append (ahead_idx);
 
       /* Read data from buffer cache */
       cache_read (sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
@@ -355,6 +357,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   {
     lock_acquire (&inode->inode_lock);
     inode_extend (&inode->data, offset + size, len);
+    /* Update inode */
+    cache_write (inode->sector, &inode->data, 0, DISK_SECTOR_SIZE);
     len = inode_set_length (inode, offset + size);
     lock_release (&inode->inode_lock);
   }
@@ -363,6 +367,10 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   {
       /* Sector to write, starting byte offset within sector. */
       disk_sector_t sector_idx = byte_to_sector (inode, offset, len, NULL);
+
+      if ((int) sector_idx < 0 )
+        return 0;
+      
       int sector_ofs = offset % DISK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
@@ -454,7 +462,7 @@ inode_idxed_remove (struct inode_disk *disk_inode, size_t size)
   for (i = 0; i < alloc_block_cnt; ++i)
   {
     /* If corresponding region is allocated, release it */
-    if (disk_inode->direct_idx[i] == 0)
+    if (disk_inode->direct_idx[i] != 0)
       free_map_release (disk_inode->direct_idx[i], 1);
     --cnt;
   }
@@ -699,3 +707,14 @@ inode_isremoved (struct inode *inode)
   return inode->removed;
 }
 
+void
+inode_dir_lock (struct inode *inode)
+{
+  lock_acquire (&inode->dir_lock);
+}
+
+void
+inode_dir_unlock (struct inode *inode)
+{
+  lock_release (&inode->dir_lock);
+}

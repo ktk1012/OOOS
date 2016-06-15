@@ -164,6 +164,7 @@ lookup (const struct dir *dir, const char *name,
 {
   struct dir_entry e;
   size_t ofs;
+  inode_dir_lock (dir->inode);
   
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
@@ -175,9 +176,11 @@ lookup (const struct dir *dir, const char *name,
         *ep = e;
       if (ofsp != NULL)
         *ofsp = ofs;
+      inode_dir_unlock (dir->inode);
       return true;
     }
   }
+  inode_dir_unlock (dir->inode);
   return false;
 }
 
