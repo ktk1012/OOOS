@@ -88,7 +88,7 @@ cache_done (void)
 	for (i = 0; i < CACHE_SIZE; ++i)
 	{
 		struct cache_entry *temp = &cache.cache_block[i];
-		if (!temp->is_victim && temp->is_valid && temp->is_dirty)
+		if (temp->is_valid && temp->is_dirty)
 		{
 			disk_write (filesys_disk, temp->idx, temp->buffer);
 			temp->is_dirty = false;

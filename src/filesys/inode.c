@@ -302,10 +302,12 @@ inode_remove (struct inode *inode)
    Returns the number of bytes actually read, which may be less
    than SIZE if an error occurs or end of file is reached. */
 off_t
-inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) 
+inode_read_at (struct inode *inode, void *buffer_, 
+               off_t size, off_t offset) 
 {
   uint8_t *buffer = buffer_;
   off_t bytes_read = 0;
+  lock_acquire (&inode->inode_lock);
   off_t len = inode_length (inode);
 
   while (size > 0)
@@ -337,6 +339,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
       offset += chunk_size;
       bytes_read += chunk_size;
   }
+  lock_release (&inode->inode_lock);
 
   return bytes_read;
 }
@@ -357,15 +360,15 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   if (inode->deny_write_cnt)
     return 0;
 
+  lock_acquire (&inode->inode_lock);
+
   /* If size + offset is larger than original size, extend it */
   if (size + offset > inode->data.length)
   {
-    lock_acquire (&inode->inode_lock);
     inode_extend (&inode->data, offset + size, len);
     /* Update inode */
     cache_write (inode->sector, &inode->data, 0, DISK_SECTOR_SIZE);
     len = inode_set_length (inode, offset + size);
-    lock_release (&inode->inode_lock);
   }
 
   while (size > 0)
@@ -397,6 +400,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       offset += chunk_size;
       bytes_written += chunk_size;
   }
+  lock_release (&inode->inode_lock);
 
   return bytes_written;
 }
@@ -425,9 +429,7 @@ inode_allow_write (struct inode *inode)
 off_t
 inode_length (struct inode *inode)
 {
-  lock_acquire (&inode->inode_lock);
   off_t size = inode->data.length;
-  lock_release (&inode->inode_lock);
   return size;
 }
 
