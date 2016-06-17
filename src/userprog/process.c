@@ -25,8 +25,12 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+<<<<<<< HEAD
 /* External global lock from thread.c */
 struct lock exit_lock;    /* Lock for process exit */
+=======
+/* External global lock from syscall.c */
+>>>>>>> origin/master
 struct lock filesys_lock; /* Lock for accessing file system */
 
 
@@ -176,7 +180,6 @@ static void clear_resources (void);
 void
 process_exit (int status)
 {
-  lock_acquire (&exit_lock);
   struct thread *curr = thread_current ();
   struct shared_status *st = curr->child_shared_status;
   uint32_t *pd;
@@ -218,7 +221,6 @@ process_exit (int status)
     free (st);
   }
   file_close (curr->excutable);
-  lock_release (&exit_lock);
 }
 
 /* Sets up the CPU for running user code in the current

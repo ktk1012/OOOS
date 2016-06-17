@@ -36,7 +36,6 @@ vm_init (void)
 	/* Init frame lock and call frame_init and swap_init in
 	 * frame.c and swap.c, respectively */
 	lock_init (&vm_frame_lock);
-	lock_init (&vm_mmap_lock);
 	frame_init ();
 	swap_init ();
 }
@@ -397,8 +396,12 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 	if (me == NULL)
 		return NULL;
 
+<<<<<<< HEAD
 	/* Lock acquire mmap lock and page lock as it shares mmap entry and page */
 	lock_acquire (&vm_mmap_lock);
+=======
+	/* acquire page lock as it shares mmap entry and page */
+>>>>>>> origin/master
 	lock_acquire (&curr->page_lock);
 	/* Initialize mmap entry */
 	me->file = file;
@@ -448,7 +451,6 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 		return NULL;
 	}
 	list_push_back (&curr->mmap_list, &me->elem);
-	lock_release (&vm_mmap_lock);
 	lock_release (&curr->page_lock);
 
 	me->mid = curr->mapid_next++;
@@ -469,8 +471,11 @@ vm_munmap (struct mmap_entry *me)
 {
 	struct thread *curr = thread_current ();
 	struct page_entry *spte;
+<<<<<<< HEAD
 	/* acuiqre mmap lock */
 	lock_acquire (&vm_mmap_lock);
+=======
+>>>>>>> origin/master
 
 	/* Remove allocated page in mmap entry
 	 * As mmap entry containes list of consecutive virtual pages */
@@ -494,6 +499,5 @@ vm_munmap (struct mmap_entry *me)
 		else
 			page_delete_entry (&curr->page_table, spte);
 	}
-	lock_release (&vm_mmap_lock);
 	return;
 }
