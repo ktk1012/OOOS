@@ -25,9 +25,6 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-/* External global lock from syscall.c */
-struct lock filesys_lock; /* Lock for accessing file system */
-
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -96,6 +93,11 @@ start_process (void *f_name)
   if_.eflags = FLAG_IF | FLAG_MBS;
   /* Loads supplemental page table */
   vm_init_page ();
+
+//  /* If inherit NULL open root */
+//  if (thread_current ()->cwd == NULL)
+//    dir_init ();
+
   success = load (file_name, &if_.eip, &if_.esp);
   *is_load_success = success;
   sema_up (&st->synch);
@@ -679,6 +681,8 @@ clear_resources (void)
   {
     fe = list_entry (list_pop_front (&curr->files),
                      struct fd_entry, elem);
+    if (fe->dir)
+      dir_close (fe->dir);
     file_close (fe->file);
     free (fe);
   }
@@ -711,6 +715,11 @@ int process_open (const char *file)
   struct fd_entry *fe = malloc (sizeof (struct fd_entry));
   fe->file = f;
   fe->fd = curr->fd_next++;
+  if (file_isdir (f))
+    fe->dir = dir_open (file_get_inode (f));
+  else
+    fe->dir = NULL;
+
   list_push_back (&curr->files, &fe->elem);
   return fe->fd;
 }
@@ -781,6 +790,9 @@ int process_close (int fd)
   struct fd_entry *fe = get_fd_entry (fd);
   if (fe == NULL)
     return -1;
+  file_close (fe->file);
+  if (fe->dir)
+    dir_close (fe->dir);
   list_remove (&fe->elem);
   free (fe);
   return 0;
@@ -819,9 +831,7 @@ int process_mmap (int fd, void *addr)
     return MAP_FAILED;
 
   /* Reopen the file */
-  lock_acquire (&filesys_lock);
   struct file *file = file_reopen (fe->file);
-  lock_release (&filesys_lock);
 
   /* Add mmap page entry */
   struct mmap_entry *me = vm_add_mmap (file, addr, file_size);
@@ -839,13 +849,43 @@ int process_munmap (mapid_t mid)
     return -1;
   struct file *file = me->file;
   vm_munmap (me);
-  lock_acquire (&filesys_lock);
   /*  Close file */
   file_close (file);
-  lock_release (&filesys_lock);
   /* Remove mmap entry */
   list_remove (&me->elem);
   free (me);
   return 0;
 }
 
+bool process_readdir (int fd, char *name)
+{
+  struct fd_entry *fe = get_fd_entry (fd);
+
+  if (fe == NULL)
+    return false;
+
+  if (!file_isdir (fe->file))
+    return false;
+
+  return dir_readdir (fe->dir, name);
+}
+
+bool process_isdir (int fd)
+{
+  struct fd_entry *fe = get_fd_entry (fd);
+
+  if (fe == NULL)
+    return false;
+
+  return file_isdir (fe->file);
+}
+
+int process_inumber (int fd)
+{
+  struct fd_entry *fe = get_fd_entry (fd);
+
+  if (fe == NULL)
+    return -1;
+
+  return file_get_inumber (fe->file);
+}

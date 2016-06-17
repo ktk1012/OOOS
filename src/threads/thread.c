@@ -15,6 +15,7 @@
 #include "userprog/process.h"
 #endif
 #include "threads/fixed_point.h"
+#include "filesys/filesys.h"
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -110,6 +111,7 @@ thread_init (void)
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+  initial_thread->cwd = ROOT_DIR_SECTOR;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -224,12 +226,17 @@ thread_create (const char *name, int priority,
 	t->esp = NULL;
 #endif
 
+  /* Inherit current working directory */
+  t->cwd = thread_current ()->cwd;
+
+
   /* Add to run queue. */
   thread_unblock (t);
 
   /* Check newly added thread has larger priority than current one.
    * If so, immediately yield */ 
   thread_check_yield ();
+
 
   intr_set_level (old_level);
 
@@ -355,13 +362,13 @@ thread_set_priority (int new_priority)
   t->priority_origin = new_priority;
 
   //t->priority = new_priority;
-  thread_priority_update ();
-  if (priority_prev < t->priority)
-    {
-      if (!thread_mlfqs)
-        thread_donate_priority ();
-    }
-  else if (priority_prev > t->priority)
+  // thread_priority_update ();
+//  if (priority_prev < t->priority)
+//    {
+//      // if (!thread_mlfqs)
+//        // thread_donate_priority ();
+//    }
+  if (priority_prev > t->priority)
     thread_check_yield ();
   intr_set_level (old_level);
 }

@@ -12,7 +12,6 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 
-extern struct lock filesys_lock;
 
 static void syscall_handler (struct intr_frame *);
 static int get_user (uint8_t *uaddr);
@@ -54,6 +53,12 @@ static int syscall_tell (struct intr_frame *f);
 static int syscall_close (struct intr_frame *f);
 static int syscall_mmap (struct intr_frame *f);
 static int syscall_munmap (struct intr_frame *f);
+// For filesys
+static int syscall_chdir (struct intr_frame *f, int *status);
+static int syscall_mkdir (struct intr_frame *f, int *status);
+static int syscall_readdir (struct intr_frame *f, int *status);
+static int syscall_isdir (struct intr_frame *f);
+static int syscall_inumber (struct intr_frame *f);
 /***************************************************/
 
 static int syscall_wait (struct intr_frame *f)
@@ -87,19 +92,21 @@ static int syscall_create (struct intr_frame *f, int *status)
     }
   if (strlen (file) > 14)
     return 0;
-  return filesys_create (file, initial_size);
+  return filesys_create (file, initial_size, false);
 }
 
 static int syscall_remove (struct intr_frame *f, int *status)
 {
   char *file = *(char **) (f->esp + 4);
-  if (file == NULL || !check_str (file, 14))
+  if (file == NULL || !check_str (file, PGSIZE))
     {
       *status = -1;
       return 0;
     }
-  if (strlen (file) > 14)
-    return 0;
+
+  if (strlen (file) == 0)
+    return false;
+
   return filesys_remove (file);
 }
 
@@ -112,12 +119,14 @@ static void syscall_exit (struct intr_frame *f)
 static int syscall_open (struct intr_frame *f, int *status)
 {
   char *file_name = *(char **) (f->esp + 4);
-  if (file_name == NULL || !check_str (file_name, 14))
+
+  if (file_name == NULL || !check_str (file_name, PGSIZE))
     {
       *status = -1;
       return -1;
     }
-  if (strlen (file_name) > 14)
+
+  if (strlen (file_name) == 0)
     return -1;
   return process_open (file_name);
 }
@@ -186,6 +195,65 @@ static int syscall_munmap (struct intr_frame *f)
   return process_munmap (mid);
 }
 
+static int
+syscall_mkdir (struct intr_frame *f, int *status)
+{
+  char *dir_name = *(char **) (f->esp + 4);
+  if (dir_name == NULL || !check_str(dir_name, PGSIZE))
+  {
+    *status = -1;
+    return -1;
+  }
+
+  if (strlen (dir_name) == 0)
+    return false;
+
+  return filesys_create ((const char *) dir_name, 0, true);
+}
+
+static int
+syscall_chdir (struct intr_frame *f, int *status)
+{
+  char *dir_name = *(char **) (f->esp + 4);
+  if (dir_name == NULL || !check_str(dir_name, PGSIZE))
+  {
+    *status = -1;
+    return -1;
+  }
+
+  if (strlen (dir_name) == 0)
+    return false;
+
+  return filesys_chdir ((const char *) dir_name);
+}
+
+static int
+syscall_readdir (struct intr_frame *f, int *status)
+{
+  int fd = *(int *) (f->esp + 4);
+  char *name = *(char **) (f->esp + 8);
+  if (name == NULL || !check_str (name, 14))
+  {
+    *status = -1;
+    return -1;
+  }
+  return process_readdir (fd, name);
+}
+
+static int
+syscall_isdir (struct intr_frame *f)
+{
+  int fd = *(int *) (f->esp +4);
+  return process_isdir (fd);
+}
+
+static int
+syscall_inumber (struct intr_frame *f)
+{
+  int fd = *(int *) (f->esp +4);
+  return process_inumber (fd);
+}
+
 static int get_user (uint8_t *uaddr)
 {
   int result;
@@ -210,7 +278,6 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init (&filesys_lock);
 }
 
 static void
@@ -252,91 +319,94 @@ syscall_handler (struct intr_frame *f UNUSED)
       case SYS_CREATE:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_create (f, &return_status);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_REMOVE:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_remove (f, &return_status);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_OPEN:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_open (f, &return_status);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_FILESIZE:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_filesize (f);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_READ:
         if (!check_arguments (f->esp + 4, 12))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_read (f, &return_status);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_WRITE:
         if (!check_arguments (f->esp + 4, 12))
             goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_write (f, &return_status);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_SEEK:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_seek (f);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_TELL:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_tell (f);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_CLOSE:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        lock_acquire (&filesys_lock);
         result = syscall_close (f);
-        lock_release (&filesys_lock);
         break;
 
       case SYS_MMAP:
         if (!check_arguments (f->esp + 4, 8))
           goto bad_arg;
-        // lock_acquire (&filesys_lock);
         result = syscall_mmap (f);
-        // lock_release (&filesys_lock);
         break;
 
       case SYS_MUNMAP:
         if (!check_arguments (f->esp + 4, 4))
           goto bad_arg;
-        // lock_acquire (&filesys_lock);
         result = syscall_munmap (f);
-        // lock_release (&filesys_lock);
         break;
 
+      case SYS_CHDIR:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        result = syscall_chdir (f, &return_status);
+        break;
+      case SYS_MKDIR:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        result = syscall_mkdir (f, &return_status);
+        break;
+      case SYS_READDIR:
+        if (!check_arguments (f->esp + 4, 8))
+          goto bad_arg;
+        result = syscall_readdir (f, &return_status);
+        break;
+      case SYS_ISDIR:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        result = syscall_isdir (f);
+        break;
+      case SYS_INUMBER:
+        if (!check_arguments (f->esp + 4, 4))
+          goto bad_arg;
+        result = syscall_inumber (f);
+        break;
     }
 
   /* Reset esp context */

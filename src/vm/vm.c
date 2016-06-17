@@ -11,8 +11,6 @@
 
 static struct lock vm_frame_lock; /* Lock for synch vm system */
 
-struct lock filesys_lock;         /* External global lock from process.c */
-
 
 /* Internal function for swap in */
 static bool vm_swap_in (struct page_entry *spte);
@@ -165,11 +163,7 @@ vm_get_page (enum palloc_flags flags, void *vaddr)
 		{
 			/* If dirty, write back to file */
 			if (pagedir_is_dirty(fe->owner->pagedir, fe->vaddr))
-			{
-				lock_acquire (&filesys_lock);
 				file_write_at (spte->file, fe->paddr, spte->read_bytes, spte->ofs);
-				lock_release (&filesys_lock);
-			}
 		}
 		else if (spte->type != FILE ||
 				pagedir_is_dirty (fe->owner->pagedir, fe->vaddr))
@@ -395,7 +389,6 @@ vm_add_mmap (struct file *file, void *start_addr, size_t file_size)
 	if (me == NULL)
 		return NULL;
 
-	/* acquire page lock as it shares mmap entry and page */
 	lock_acquire (&curr->page_lock);
 	/* Initialize mmap entry */
 	me->file = file;
@@ -478,11 +471,8 @@ vm_munmap (struct mmap_entry *me)
 			void *paddr = pagedir_get_page (curr->pagedir, spte->vaddr);
 			struct frame_entry *fe = frame_get_entry (paddr);
 			if (pagedir_is_dirty (curr->pagedir, spte->vaddr))
-			{
-				lock_acquire (&filesys_lock);
 				file_write_at(spte->file, fe->paddr, spte->read_bytes, spte->ofs);
-				lock_release (&filesys_lock);
-			}
+
 			vm_free_page (paddr);
 		}
 		else

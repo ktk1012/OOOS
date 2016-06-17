@@ -2,31 +2,101 @@
 #include <stdio.h>
 #include <string.h>
 #include <list.h>
+#include "threads/thread.h"
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 
-/* A directory. */
-struct dir 
-  {
-    struct inode *inode;                /* Backing store. */
-    off_t pos;                          /* Current position. */
-  };
 
-/* A single directory entry. */
-struct dir_entry 
+/* Parse given path, and return file name and containing directory */
+struct dir *
+dir_open_path (const char *path)
+{
+  char dir_copy[strlen (path) + 1];
+  /* If path end with '/', strip it */
+  if (path[strlen(path)] == '/')
+    strlcpy (dir_copy, path, strlen (path));
+  else
+    strlcpy (dir_copy, path, strlen (path) + 1);
+
+  char *token, *save_ptr, *path_next;
+  struct dir *dir;
+  struct inode *inode_temp;
+
+  /* Find cwd */
+  disk_sector_t cwd = thread_current ()->cwd;
+
+  /* If path start with '/', open root directory, else open relatively */
+  if (dir_copy[0] == '/')
   {
-    disk_sector_t inode_sector;         /* Sector number of header. */
-    char name[NAME_MAX + 1];            /* Null terminated file name. */
-    bool in_use;                        /* In use or free? */
-  };
+    dir = dir_open_root ();
+    /* Make relative path to root directory */
+    strlcpy (dir_copy, path + 1, strlen (path));
+  }
+  else
+    dir = dir_open(inode_open (cwd));
+
+
+  path_next = strtok_r (dir_copy, "/", &save_ptr);
+
+  for (token = strtok_r (NULL, "/", &save_ptr); token != NULL;)
+  {
+    if (strlen (path_next) == 0)
+      continue;
+
+    if (!strcmp (path_next, "./"))
+      continue;
+
+    if (!dir_lookup (dir, path_next, &inode_temp) ||
+        !inode_is_dir (inode_temp))
+    {
+      dir_close (dir);
+      inode_close (inode_temp);
+      return NULL;
+    }
+    dir_close (dir);
+    dir = dir_open (inode_temp);
+    path_next = token;
+    token = strtok_r (NULL, "/", &save_ptr);
+  }
+
+  return dir;
+}
+
+char *
+dir_parse_name (const char *path)
+{
+  char *token, *save_ptr, *f_name = NULL;
+  char path_copy[strlen (path) + 1];
+  if (path[strlen(path)] == '/')
+  {
+    strlcpy (path_copy, path, strlen (path));
+  }
+  else
+    strlcpy (path_copy, path, strlen (path) + 1);
+
+  for (token = strtok_r (path_copy, "/", &save_ptr); token != NULL;
+       token = strtok_r (NULL, "/", &save_ptr))
+    f_name = token;
+
+  if (!f_name || !strlen (f_name))
+    f_name = ".";
+
+  char *name = malloc (strlen (f_name) + 1);
+  if (!name)
+    return NULL;
+  else
+    strlcpy (name, f_name, strlen (f_name) + 1);
+  return name;
+}
 
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
-dir_create (disk_sector_t sector, size_t entry_cnt) 
+dir_create (disk_sector_t sector, size_t entry_cnt, disk_sector_t parent)
 {
-  return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+  return inode_create (sector, entry_cnt * sizeof (struct dir_entry),
+                       true, parent);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -94,20 +164,23 @@ lookup (const struct dir *dir, const char *name,
 {
   struct dir_entry e;
   size_t ofs;
+  inode_dir_rdlock (dir->inode);
   
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
   for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
-       ofs += sizeof e) 
-    if (e.in_use && !strcmp (name, e.name)) 
-      {
-        if (ep != NULL)
-          *ep = e;
-        if (ofsp != NULL)
-          *ofsp = ofs;
-        return true;
-      }
+       ofs += sizeof e) {
+    if (e.in_use && !strcmp(name, e.name)) {
+      if (ep != NULL)
+        *ep = e;
+      if (ofsp != NULL)
+        *ofsp = ofs;
+      inode_dir_rdunlock (dir->inode);
+      return true;
+    }
+  }
+  inode_dir_rdunlock (dir->inode);
   return false;
 }
 
@@ -163,6 +236,7 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector)
      inode_read_at() will only return a short read at end of file.
      Otherwise, we'd need to verify that we didn't get a short
      read due to something intermittent such as low memory. */
+  inode_dir_wrlock (dir->inode);
   for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
     if (!e.in_use)
@@ -174,6 +248,7 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector)
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 
+  inode_dir_wrunlock (dir->inode);
  done:
   return success;
 }
@@ -201,6 +276,23 @@ dir_remove (struct dir *dir, const char *name)
   if (inode == NULL)
     goto done;
 
+  /* If inode sector is root directory sector reject it */
+  if (inode_isroot (inode))
+    goto done;
+
+  /* If inode is directory and not empry, reject it */
+  if (inode_is_dir (inode))
+  {
+    struct dir *temp = dir_open (inode);
+    if (!dir_is_empty (temp))
+    {
+      dir_close (temp);
+      goto done;
+    }
+    dir_close (temp);
+  }
+
+  inode_dir_wrlock (dir->inode);
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 
@@ -209,6 +301,7 @@ dir_remove (struct dir *dir, const char *name)
   /* Remove inode. */
   inode_remove (inode);
   success = true;
+  inode_dir_wrunlock (dir->inode);
 
  done:
   inode_close (inode);
@@ -223,14 +316,41 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 {
   struct dir_entry e;
 
-  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
+  inode_dir_rdlock (dir->inode);
+  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e)
     {
       dir->pos += sizeof e;
+      if (!strcmp (e.name, ".") || !strcmp (e.name, ".."))
+        continue;
       if (e.in_use)
         {
           strlcpy (name, e.name, NAME_MAX + 1);
+          inode_dir_rdunlock (dir->inode);
           return true;
         } 
     }
+  inode_dir_rdunlock (dir->inode);
   return false;
+}
+
+bool
+dir_is_empty (struct dir *dir)
+{
+  struct dir_entry e;
+  off_t ofs;
+  inode_dir_rdlock (dir->inode);
+  /* As first two entry is self pointer and parent, set it to 2 * sizeof e */
+  for (ofs = 2 * sizeof e;
+       inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+       ofs += sizeof e)
+  {
+    dir->pos += sizeof e;
+    if (e.in_use)
+    {
+      inode_dir_rdunlock (dir->inode);
+      return false;
+    }
+  }
+  inode_dir_rdunlock (dir->inode);
+  return true;
 }

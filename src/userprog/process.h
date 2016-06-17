@@ -2,12 +2,15 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+#include "filesys/directory.h"
 #include <user/syscall.h>
 
 /* Open file entry */
 struct fd_entry
   {
     struct file * file;
+    /* If open entry is directory, get it */
+    struct dir *dir;
     int fd;
     struct list_elem elem;
   };
@@ -26,6 +29,10 @@ int process_tell (int fd);
 int process_close (int fd);
 int process_mmap (int fd, void *addr);
 int process_munmap (mapid_t mid);
+bool process_readdir (int fd, char *name);
+bool process_isdir (int fd);
+int process_inumber (int fd);
+
 
 /* Load helpers */
 bool install_page (void *upage, void *kpage, bool writable);

@@ -8,11 +8,6 @@
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
 
-#include <stdio.h>
-
-
-struct lock filesys_lock;
-
 
 /* Hash function for hash data structures
  * Details are described below */
@@ -327,11 +322,7 @@ page_destroy_action (struct hash_elem *e, void *aux UNUSED)
     {
       list_remove (&pe->elem_mmap);
       if (pagedir_is_dirty (t->pagedir, pe->vaddr))
-      {
-        lock_acquire (&filesys_lock);
         file_write_at (pe->file, paddr, pe->read_bytes, pe->ofs);
-        lock_release (&filesys_lock);
-      }
     }
 		struct frame_entry *fe = frame_get_entry (paddr);
 		pagedir_clear_page (t->pagedir, pe->vaddr);

@@ -7,6 +7,9 @@
 #include <stdint.h>
 #include "threads/synch.h"
 
+#include "devices/disk.h"
+#include "filesys/directory.h"
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -152,6 +155,9 @@ struct thread
     /* For mmap support */
     struct list mmap_list;              /* List of mmapped entries */
     int mapid_next;                     /* mapid_t that to be allocated */
+
+    /* For sub directory operations */
+    disk_sector_t cwd;                    /* Current working directory */
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
