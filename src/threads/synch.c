@@ -422,3 +422,111 @@ cond_less_sema_priority (const struct list_elem* e1,
   return t1->priority < t2->priority;
 }
 
+void rw_init (struct rw_lock *rw)
+{
+  lock_init (&rw->lock);
+  cond_init (&rw->cond_read);
+  cond_init (&rw->cond_write);
+  cond_init (&rw->cond_evict);
+  rw->is_evict = false;
+  rw->r_wait = rw->r_active = 0;
+  rw->w_wait = rw->w_active = 0;
+}
+
+bool rw_rd_lock (struct rw_lock *rw)
+{
+  lock_acquire (&rw->lock);
+//  printf ("rd_lock\n");
+  if (rw->is_evict)
+  {
+    lock_release (&rw->lock);
+    return false;
+  }
+
+  ++rw->r_wait;
+  while (rw->w_active)
+    cond_wait (&rw->cond_read, &rw->lock);
+  --rw->r_wait;
+  ++rw->r_active;
+
+  lock_release (&rw->lock);
+//  printf ("rd_lock_done\n");
+  return true;
+}
+
+bool rw_wr_lock (struct rw_lock *rw)
+{
+  lock_acquire (&rw->lock);
+//  printf ("wr_lock\n");
+  if (rw->is_evict)
+  {
+    lock_release (&rw->lock);
+    return false;
+  }
+
+  ++rw->w_wait;
+  while (rw->w_active || rw->r_active)
+    cond_wait (&rw->cond_write, &rw->lock);
+
+  --rw->w_wait;
+  ++rw->w_active;
+
+  lock_release (&rw->lock);
+//  printf ("wr_lock done\n");
+  return true;
+}
+
+void rw_evict_lock (struct rw_lock *rw)
+{
+  lock_acquire (&rw->lock);
+
+  rw->is_evict = true;
+  while (rw->r_active || rw->w_active || rw->r_wait || rw->w_wait)
+    cond_wait (&rw->cond_evict, &rw->lock);
+
+  lock_release (&rw->lock);
+}
+
+void rw_rd_unlock (struct rw_lock *rw)
+{
+  lock_acquire (&rw->lock);
+//  printf ("rd_unlock\n");
+
+  --rw->r_active;
+
+  if (rw->r_active == 0 && rw->w_wait > 0)
+    cond_signal (&rw->cond_write, &rw->lock);
+
+  if (!(rw->r_active || rw->w_active || rw->r_wait || rw->w_wait))
+    cond_signal (&rw->cond_evict, &rw->lock);
+
+  lock_release (&rw->lock);
+//  printf ("rd_unlock done\n");
+}
+void rw_wr_unlock (struct rw_lock *rw)
+{
+  lock_acquire (&rw->lock);
+//  printf ("wr_unlock\n");
+
+  --rw->w_active;
+
+  ASSERT (rw->w_active == 0);
+
+  if (rw->w_wait)
+    cond_signal (&rw->cond_write, &rw->lock);
+  else
+    cond_broadcast (&rw->cond_read, &rw->lock);
+
+  if (!(rw->r_active || rw->w_active || rw->r_wait || rw->w_wait))
+    cond_signal (&rw->cond_evict, &rw->lock);
+
+  lock_release (&rw->lock);
+//  printf ("wr_unlock done\n");
+}
+
+void rw_evict_unlock (struct rw_lock *rw)
+{
+  lock_acquire (&rw->lock);
+  rw->is_evict = false;
+  lock_release (&rw->lock);
+}

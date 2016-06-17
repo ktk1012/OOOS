@@ -164,7 +164,7 @@ lookup (const struct dir *dir, const char *name,
 {
   struct dir_entry e;
   size_t ofs;
-  inode_dir_lock (dir->inode);
+  inode_dir_rdlock (dir->inode);
   
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
@@ -176,11 +176,11 @@ lookup (const struct dir *dir, const char *name,
         *ep = e;
       if (ofsp != NULL)
         *ofsp = ofs;
-      inode_dir_unlock (dir->inode);
+      inode_dir_rdunlock (dir->inode);
       return true;
     }
   }
-  inode_dir_unlock (dir->inode);
+  inode_dir_rdunlock (dir->inode);
   return false;
 }
 
@@ -236,6 +236,7 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector)
      inode_read_at() will only return a short read at end of file.
      Otherwise, we'd need to verify that we didn't get a short
      read due to something intermittent such as low memory. */
+  inode_dir_wrlock (dir->inode);
   for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
        ofs += sizeof e) 
     if (!e.in_use)
@@ -247,6 +248,7 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector)
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 
+  inode_dir_wrunlock (dir->inode);
  done:
   return success;
 }
@@ -290,6 +292,7 @@ dir_remove (struct dir *dir, const char *name)
     dir_close (temp);
   }
 
+  inode_dir_wrlock (dir->inode);
   /* Erase directory entry. */
   e.in_use = false;
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 
@@ -298,6 +301,7 @@ dir_remove (struct dir *dir, const char *name)
   /* Remove inode. */
   inode_remove (inode);
   success = true;
+  inode_dir_wrunlock (dir->inode);
 
  done:
   inode_close (inode);
@@ -312,7 +316,8 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 {
   struct dir_entry e;
 
-  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
+  inode_dir_rdlock (dir->inode);
+  while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e)
     {
       dir->pos += sizeof e;
       if (!strcmp (e.name, ".") || !strcmp (e.name, ".."))
@@ -320,9 +325,11 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
       if (e.in_use)
         {
           strlcpy (name, e.name, NAME_MAX + 1);
+          inode_dir_rdunlock (dir->inode);
           return true;
         } 
     }
+  inode_dir_rdunlock (dir->inode);
   return false;
 }
 
@@ -331,6 +338,7 @@ dir_is_empty (struct dir *dir)
 {
   struct dir_entry e;
   off_t ofs;
+  inode_dir_rdlock (dir->inode);
   /* As first two entry is self pointer and parent, set it to 2 * sizeof e */
   for (ofs = 2 * sizeof e;
        inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
@@ -338,7 +346,11 @@ dir_is_empty (struct dir *dir)
   {
     dir->pos += sizeof e;
     if (e.in_use)
+    {
+      inode_dir_rdunlock (dir->inode);
       return false;
+    }
   }
+  inode_dir_rdunlock (dir->inode);
   return true;
 }

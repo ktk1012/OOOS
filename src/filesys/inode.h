@@ -22,8 +22,10 @@ off_t inode_length (struct inode *);
 bool inode_is_dir (struct inode *inode);
 bool inode_isroot (struct inode *inode);
 bool inode_isremoved (struct inode *inode);
-void inode_dir_lock (struct inode *inode);
-void inode_dir_unlock (struct inode *inode);
+void inode_dir_rdlock (struct inode *inode);
+void inode_dir_rdunlock (struct inode *inode);
+void inode_dir_wrlock (struct inode *inode);
+void inode_dir_wrunlock (struct inode *inode);
 
 disk_sector_t inode_get_parent (struct inode *inode);
 

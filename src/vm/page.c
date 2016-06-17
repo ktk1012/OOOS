@@ -29,6 +29,7 @@ static void page_destroy_action (struct hash_elem *e, void *aux UNUSED);
  * \Initialize user process's supplemental page table
  *
  * \param   void
+ *
  * \retval  void
  */
 void
@@ -151,16 +152,37 @@ page_destroy_table (struct hash *table)
 	hash_destroy (table, page_destroy_action);
 }
 
+
+/**
+ * \page_load_lazy
+ * \Add supplemental page lazily, not load file immediately
+ *
+ * \param   table corresponding sup page table
+ * \param   file  file to load lazily
+ * \param   ofs   offset of file to be read
+ * \param   vaddr user virtual address of current context
+ * \param   read_bytes  bytes to be read from offset
+ * \param   zero_bytes  bytes of zero padding
+ * \param   writable    indicates that this region is writable or not
+ * \param   enum page_type  determine this region is mmap or file
+ *
+ * \retval  supplemental page table entry if success
+ * \retval  Null if failed
+ */
 struct page_entry *
 page_load_lazy (struct hash *table, struct file *file, off_t ofs,
                 void *vaddr, uint32_t read_bytes, uint32_t zero_bytes,
                 bool writable, enum page_type type)
 {
+	/* Allocate page entry */
 	struct page_entry *spte = malloc (sizeof (struct page_entry));
 	if (spte == NULL)
 		return NULL;
+
+	/* Set status of this page entry */
 	spte->vaddr = vaddr;
 	spte->type = type;
+	/* Set this page is not in memory */
 	spte->is_loaded = false;
 	spte->flags = PAL_USER;
 	spte->file = file;
@@ -168,35 +190,67 @@ page_load_lazy (struct hash *table, struct file *file, off_t ofs,
 	spte->read_bytes = read_bytes;
 	spte->zero_bytes = zero_bytes;
 	spte->writable = writable;
+
+	/* Insert entry into supplemetal page table */
 	hash_insert (table, &spte->elem);
 	return spte;
 }
 
+
+/**
+ * \page_load_demand
+ * \Load page on demand (call only fault occurred)
+ *
+ * \param   spte  Supplemental page table that fault occurred
+ * \param   paddr physical address to be mapped
+ *
+ * \retval  true  if success
+ * \retval  false if failed
+ */
 bool
 page_load_demand (struct page_entry *spte, void *paddr)
 {
+	/* Read read_bytes from offset written in spte */
 	if (file_read_at (spte->file, paddr, spte->read_bytes, spte->ofs)
 	    != (int) spte->read_bytes)
 		return false;
 
+	/* Add zero padding */
 	memset (paddr + spte->read_bytes, 0, spte->zero_bytes);
+
+	/* Set this page is loaded in memory */
 	spte->is_loaded = true;
+
+	/* Install vaddr and paddr mapping into pagedir */
 	return install_page (spte->vaddr, paddr, spte->writable);
 }
 
-
+/**
+ * \page_munmap
+ * \unmap the page
+ *
+ * \param   table supplemental page table
+ * \param   spte  supplemental page table entry
+ * \param   pagedir pagedirectory of corresponding process
+ *
+ * \retval  void
+ */
 void
 page_munmap (struct hash *table, struct page_entry *spte, void *pagedir)
 {
+	/* If page is loaded in memory, free it */
 	if (spte->is_loaded)
 	{
 		void *paddr = pagedir_get_page (pagedir, spte->vaddr);
+		/* If this page is dirty, write back to file */
 		if (pagedir_is_dirty (pagedir, spte->vaddr))
 		{
 			file_write_at (spte->file, paddr, spte->read_bytes, spte->ofs);
 		}
 		palloc_free_page (paddr);
 	}
+
+	/* Delete entry and set vaddr regin to be not present */
 	hash_delete (table, &spte->elem);
 	pagedir_clear_page (pagedir, spte->vaddr);
 	free (spte);

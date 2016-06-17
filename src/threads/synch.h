@@ -53,6 +53,25 @@ bool cond_less_sema_priority (const struct list_elem* e1,
                               void* AUX UNUSED);
 
 
+struct rw_lock
+{
+  struct condition cond_read;
+  struct condition cond_write;
+  struct condition cond_evict;
+  bool is_evict;
+  int r_wait, r_active;
+  int w_wait, w_active;
+  struct lock lock;
+};
+
+void rw_init (struct rw_lock *);
+bool rw_rd_lock (struct rw_lock *);
+bool rw_wr_lock (struct rw_lock *);
+void rw_evict_lock (struct rw_lock *);
+void rw_rd_unlock (struct rw_lock *);
+void rw_wr_unlock (struct rw_lock *);
+void rw_evict_unlock (struct rw_lock *);
+
 /* Optimization barrier.
 
    The compiler will not reorder operations across an

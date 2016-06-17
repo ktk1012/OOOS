@@ -18,8 +18,8 @@ struct cache_entry
 	bool is_dirty;                    /* Dirty check bit */
 	bool is_valid;                    /* Valid check bit */
 	uint64_t time;                    /* Last accessed time */
-	struct lock block_lock;           /* per entry lock */
 	bool is_victim;                   /* This block to be evicted */
+	struct rw_lock rwl;               /* Read write lock for block */
 };
 
 /* Functions for caching */

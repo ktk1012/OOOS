@@ -65,8 +65,8 @@ struct inode
     bool removed;                       /* True if deleted, false otherwise. */
     int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
     struct inode_disk data;             /* Inode content. */
-    struct lock inode_lock;             /* Inode lock */
-    struct lock dir_lock;
+    struct rw_lock inode_lock;          /* Inode read writer lock */
+    struct rw_lock dir_lock;            /* Direcory's read writer lock */
   };
 
 
@@ -233,8 +233,8 @@ inode_open (disk_sector_t sector)
   inode->open_cnt = 1;
   inode->deny_write_cnt = 0;
   inode->removed = false;
-  lock_init (&inode->inode_lock);
-  lock_init (&inode->dir_lock);
+  rw_init (&inode->inode_lock);
+  rw_init (&inode->dir_lock);
   cache_read (inode->sector, &inode->data, 0, DISK_SECTOR_SIZE);
   return inode;
 }
@@ -307,7 +307,7 @@ inode_read_at (struct inode *inode, void *buffer_,
 {
   uint8_t *buffer = buffer_;
   off_t bytes_read = 0;
-  lock_acquire (&inode->inode_lock);
+  rw_rd_lock (&inode->inode_lock);
   off_t len = inode_length (inode);
 
   while (size > 0)
@@ -339,7 +339,7 @@ inode_read_at (struct inode *inode, void *buffer_,
       offset += chunk_size;
       bytes_read += chunk_size;
   }
-  lock_release (&inode->inode_lock);
+  rw_rd_unlock (&inode->inode_lock);
 
   return bytes_read;
 }
@@ -360,7 +360,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   if (inode->deny_write_cnt)
     return 0;
 
-  lock_acquire (&inode->inode_lock);
+  rw_wr_lock (&inode->inode_lock);
 
   /* If size + offset is larger than original size, extend it */
   if (size + offset > inode->data.length)
@@ -400,7 +400,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       offset += chunk_size;
       bytes_written += chunk_size;
   }
-  lock_release (&inode->inode_lock);
+
+  rw_wr_unlock (&inode->inode_lock);
 
   return bytes_written;
 }
@@ -715,13 +716,25 @@ inode_isremoved (struct inode *inode)
 }
 
 void
-inode_dir_lock (struct inode *inode)
+inode_dir_rdlock (struct inode *inode)
 {
-  lock_acquire (&inode->dir_lock);
+  rw_rd_lock (&inode->dir_lock);
 }
 
 void
-inode_dir_unlock (struct inode *inode)
+inode_dir_rdunlock (struct inode *inode)
 {
-  lock_release (&inode->dir_lock);
+  rw_rd_unlock (&inode->dir_lock);
+}
+
+void
+inode_dir_wrlock (struct inode *inode)
+{
+  rw_wr_lock (&inode->dir_lock);
+}
+
+void
+inode_dir_wrunlock (struct inode *inode)
+{
+  rw_wr_unlock (&inode->dir_lock);
 }
