@@ -21,7 +21,7 @@ struct cache
 
 };
 
-static struct lock cache_lock;
+static struct rw_lock cache_lock;
 static struct cache cache;
 
 
@@ -45,7 +45,7 @@ static void cache_add (disk_sector_t idx);
 void
 cache_init (void)
 {
-	lock_init(&cache_lock);
+	rw_init (&cache_lock);
 	cache.aval_size = 64;
 	cache.free_map = bitmap_create (CACHE_SIZE);
 	/* Initialize all cache block */
@@ -99,11 +99,9 @@ void
 cache_read (disk_sector_t idx, void *buffer, off_t ofs, size_t read_bytes)
 {
 	/* Get cache block entry */
-  lock_acquire (&cache_lock);
 	struct cache_entry *temp = get_block (idx);
 	/* Acquire individual lock in cache block entry */
 	rw_rd_lock (&temp->rwl);
-	lock_release (&cache_lock);
 
 	/* If block is not valid, read from disk to buffer cache */
 	if (!temp->is_valid)
@@ -122,10 +120,8 @@ cache_write (disk_sector_t idx, const void *buffer,
              off_t ofs, size_t write_bytes)
 {
 	/* Get block entry */
-  lock_acquire (&cache_lock); 
 	struct cache_entry *temp = get_block (idx);
 	rw_wr_lock (&temp->rwl);
-	lock_release (&cache_lock);
 	/* Acquire individual lock */
 
 	/* If block is not valid, read from disk to buffer cache */
@@ -147,10 +143,8 @@ cache_write (disk_sector_t idx, const void *buffer,
 static void
 cache_add (disk_sector_t idx)
 {
-	lock_acquire (&cache_lock);
 	struct cache_entry *temp = get_block (idx);
 	rw_rd_lock (&temp->rwl);
-	lock_release (&cache_lock);
 	/* Read from disk if invalid */
 
 	if (!temp->is_valid)
@@ -172,6 +166,7 @@ get_block (disk_sector_t idx)
 	struct cache_entry *temp = NULL;
 	uint64_t lru_min = -1;
 	int lru_min_idx = 0;
+	rw_rd_lock (&cache_lock);
 	for (i = 0; i < CACHE_SIZE; ++i)
 	{
 		/* If there is no entry (all blocks are free) break */
@@ -183,7 +178,10 @@ get_block (disk_sector_t idx)
 		{
 			/* If index of block is matched, return it */
 			if (temp->idx == idx)
+      {
+        rw_rd_unlock (&cache_lock);
 				return temp;
+      }
 			/* Otherwise, check this block is candidate for eviction */
 			if (lru_min > temp->time)
 			{
@@ -192,6 +190,8 @@ get_block (disk_sector_t idx)
 			}
 		}
 	}
+  rw_rd_unlock (&cache_lock);
+  rw_wr_lock (&cache_lock);
 
 	/* Not found case */
 	/* If there is available block */
@@ -228,6 +228,8 @@ get_block (disk_sector_t idx)
 
 
 	/* Release the cache lock */
+  rw_wr_unlock (&cache_lock);
+
 	return temp;
 }
 
@@ -259,9 +261,11 @@ cache_periodic_refresh (void *aux UNUSED)
 	{
 		timer_usleep (10000);
 		// printf ("periodic !\n");
-    lock_acquire (&cache_lock);
+    // lock_acquire (&cache_lock);
+    rw_rd_lock (&cache_lock);
 		cache_refresh ();
-    lock_release (&cache_lock);
+    rw_rd_unlock (&cache_lock);
+    // lock_release (&cache_lock);
 	}
 }
 
