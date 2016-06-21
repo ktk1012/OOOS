@@ -8,11 +8,14 @@
 #include "threads/malloc.h"
 
 
-/* Parse given path, and return file name and containing directory */
+/* As path contains always working directory
+ * (ex. /foo/bar.txt -> working directory is /foo).
+ * So parsing the path name and open working directory. */
 struct dir *
 dir_open_path (const char *path)
 {
   char dir_copy[strlen (path) + 1];
+
   /* If path end with '/', strip it */
   if (path[strlen(path)] == '/')
     strlcpy (dir_copy, path, strlen (path));
@@ -37,37 +40,52 @@ dir_open_path (const char *path)
     dir = dir_open(inode_open (cwd));
 
 
+  /* parse the path_next, it would be the name of working directory */
   path_next = strtok_r (dir_copy, "/", &save_ptr);
 
+  /* Parse the string */
   for (token = strtok_r (NULL, "/", &save_ptr); token != NULL;)
   {
+    /* If path is '//' continue */
     if (strlen (path_next) == 0)
       continue;
 
+    /* If path contains './' it is current directory, so continue */
     if (!strcmp (path_next, "./"))
       continue;
 
+    /* Lookup the enetry with path_next and open it */
     if (!dir_lookup (dir, path_next, &inode_temp) ||
         !inode_is_dir (inode_temp))
     {
+      /* Close current directory */
       dir_close (dir);
+      /* Close open file */
       inode_close (inode_temp);
       return NULL;
     }
     dir_close (dir);
+    /* Open new working directory */
     dir = dir_open (inode_temp);
     path_next = token;
+    /* Get new token */
     token = strtok_r (NULL, "/", &save_ptr);
   }
 
   return dir;
 }
 
+/* Parse the path name and get file name
+ * if path is foo/bar.txt return text is bar.txt.
+ * Note that text is dynamically allocated,
+ * so we must clear the allocated file name */
 char *
 dir_parse_name (const char *path)
 {
   char *token, *save_ptr, *f_name = NULL;
   char path_copy[strlen (path) + 1];
+  /* If path end with / (eg. foo/bar.txt/)
+   * strip it */
   if (path[strlen(path)] == '/')
   {
     strlcpy (path_copy, path, strlen (path));
@@ -75,6 +93,7 @@ dir_parse_name (const char *path)
   else
     strlcpy (path_copy, path, strlen (path) + 1);
 
+  /* Get last token of path name */
   for (token = strtok_r (path_copy, "/", &save_ptr); token != NULL;
        token = strtok_r (NULL, "/", &save_ptr))
     f_name = token;
@@ -82,11 +101,13 @@ dir_parse_name (const char *path)
   if (!f_name || !strlen (f_name))
     f_name = ".";
 
+  /* Allocate memory and copy the file name */
   char *name = malloc (strlen (f_name) + 1);
   if (!name)
     return NULL;
   else
     strlcpy (name, f_name, strlen (f_name) + 1);
+
   return name;
 }
 
@@ -95,6 +116,7 @@ dir_parse_name (const char *path)
 bool
 dir_create (disk_sector_t sector, size_t entry_cnt, disk_sector_t parent)
 {
+  /* Just calling inode_create with is_dir field true */
   return inode_create (sector, entry_cnt * sizeof (struct dir_entry),
                        true, parent);
 }
@@ -292,6 +314,7 @@ dir_remove (struct dir *dir, const char *name)
     dir_close (temp);
   }
 
+  /* Get write_lock as this operation modifies direcory's data */
   inode_dir_wrlock (dir->inode);
   /* Erase directory entry. */
   e.in_use = false;
@@ -316,6 +339,7 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 {
   struct dir_entry e;
 
+  /* Get read lock of given directory */
   inode_dir_rdlock (dir->inode);
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e)
     {
@@ -333,11 +357,13 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
   return false;
 }
 
+/* Check given directory is empty or not */
 bool
 dir_is_empty (struct dir *dir)
 {
   struct dir_entry e;
   off_t ofs;
+  /* As checking is reading task, acquire read lock */
   inode_dir_rdlock (dir->inode);
   /* As first two entry is self pointer and parent, set it to 2 * sizeof e */
   for (ofs = 2 * sizeof e;
@@ -345,6 +371,7 @@ dir_is_empty (struct dir *dir)
        ofs += sizeof e)
   {
     dir->pos += sizeof e;
+    /* If at least one entry is alive in directory, return false */
     if (e.in_use)
     {
       inode_dir_rdunlock (dir->inode);

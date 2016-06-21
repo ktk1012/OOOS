@@ -94,8 +94,10 @@ file_read_at (struct file *file, void *buffer, off_t size, off_t file_ofs)
 off_t
 file_write (struct file *file, const void *buffer, off_t size) 
 {
+  /* If given file is inode, refuse it */
   if (inode_is_dir (file->inode))
     return -1;
+
   off_t bytes_written = inode_write_at (file->inode, buffer, size, file->pos);
   file->pos += bytes_written;
   return bytes_written;
@@ -112,6 +114,7 @@ off_t
 file_write_at (struct file *file, const void *buffer, off_t size,
                off_t file_ofs) 
 {
+  /* If given file is inode, refuse it */
   if (inode_is_dir (file->inode))
     return -1;
 
@@ -172,6 +175,7 @@ file_tell (struct file *file)
   return file->pos;
 }
 
+/* Returns the current file is directory */
 bool
 file_isdir (struct file *file)
 {
@@ -179,6 +183,7 @@ file_isdir (struct file *file)
   return inode_is_dir (file->inode);
 }
 
+/* Get the inode number of given file */
 int
 file_get_inumber (struct file *file)
 {

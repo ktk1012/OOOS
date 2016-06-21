@@ -1,0 +1,308 @@
+       	       	     +-------------------------+
+		     |		CS 140	       |
+		     | PROJECT 4: FILE SYSTEMS |
+		     |	   DESIGN DOCUMENT     |
+		     +-------------------------+
+
+---- GROUP ----
+
+>> Fill in the names and email addresses of your group members.
+
+Tae-kyeom, Kim <kimtkyeom@kaist.ac.kr>
+Jun-sik   Seo <js0780@kaist.ac.kr>
+
+---- PRELIMINARIES ----
+
+>> If you have any preliminary comments on your submission, notes for the
+>> TAs, or extra credit, please give them here.
+
+>> Please cite any offline or online sources you consulted while
+>> preparing your submission, other than the Pintos documentation, course
+>> text, lecture notes, and course staff.
+
+		     INDEXED AND EXTENSIBLE FILES
+		     ============================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+/* In cache. h */
+ +/* Maximum numbers of entry in cache table (i.e cache size) */
+ +#define CACHE_SIZE 64
+ +
+ +/* Cache entry */
+ +struct cache_entry
+ +{
+ +	char buffer[DISK_SECTOR_SIZE];    /* Saved data from disk */
+ +	disk_sector_t idx;                /* Location of buffered item */
+ +	bool is_dirty;                    /* Dirty check bit */
+ +	bool is_valid;                    /* Valid check bit */
+ +	uint64_t time;                    /* Last accessed time */
+ +	bool is_victim;                   /* This block to be evicted */
+ +	struct rw_lock rwl;               /* Read write lock for block */
+ +};
+ +
+ +/* Functions for caching */
+
+/* In cache.c */
+ +static uint64_t time_stamp;  /* Time stamp for LRU eviction */
+ +
+ +struct cache
+ +{
+ +	/* Cache entries */
+ +	struct cache_entry cache_block[CACHE_SIZE];
+ +	struct bitmap *free_map;  /* Bitmap of available cache blocks */
+ +	int aval_size;            /* Available cache block size */
+ +
+ +};
+
+ /* In directory.h */
+
+ +/* A directory. */
+ +struct dir
+ +{
+ +	struct inode *inode;                /* Backing store. */
+ +	off_t pos;                          /* Current position. */
+ +};
+ +
+ +/* A single directory entry. */
+ +struct dir_entry
+ +{
+ +	disk_sector_t inode_sector;         /* Sector number of header. */
+ +	char name[NAME_MAX + 1];            /* Null terminated file name. */
+ +	bool in_use;                        /* In use or free? */
+ +};
+
+/* In inode.c */
+ +/* Number of direct block */
+ +#define DIRECT_BLOCK_CNT 120
+ +
+ +/* Number of block in indirect block */
+ +#define INDIRECT_CNT 128
+ +
+  /* On-disk inode.
+     Must be exactly DISK_SECTOR_SIZE bytes long. */
+  struct inode_disk
+    {
+ -    disk_sector_t start;                /* First data sector. */
+ +    disk_sector_t direct_idx[DIRECT_BLOCK_CNT];      /* Direct block list */
+ +    disk_sector_t indirect_idx;         /* Indirect block pointer */
+ +    disk_sector_t db_indirect_idx;      /* Doubly indirect block pointer */
+ +
+      off_t length;                       /* File size in bytes. */
+      unsigned magic;                     /* Magic number. */
+ -    uint32_t unused[125];               /* Not used. */
+ +    bool is_dir;                    /* Is directory or not */
+ +    /* If inode is directory, indicate parent directory's sector */
+ +    disk_sector_t parent;
+ +    uint32_t unused[1];                 /* Reserved region */
+ +    uint8_t dummy[3];                   /* Reserved region */
+    };
+
+ +/* On-disk indirect block,
+ + * Initially, each entry is 0 (invalid),
+ + * Otherwise, indicate the block index */
+ +struct indirect_block
+ +{
+ +  disk_sector_t sector[INDIRECT_CNT];
+ +};
+
+/* In synch.h */
+ /* Lock for reader & writer */
+ +struct rw_lock
+ +{
+ +  struct condition cond_read;   /* Condition for readers */
+ +  struct condition cond_write;  /* Condition for writers */
+ +  struct condition cond_evict;  /* Condition for eviction */
+ +  bool is_evict;                /* Is it to evicted or not ?? */
+ +  bool write_first;             /* Is write is prefered or not? */
+ +  int r_wait, r_active;         /* Read waiters cnt and read active cnt */
+ +  int w_wait, w_active;         /* Write waiters cnt and write active cnt */
+ +  struct lock lock;             /* Lock for mutual exclusion */
+ +};
+
+>> A2: What is the maximum size of a file supported by your inode
+>> structure?  Show your work.
+
+Inode는 120개의 direct block과 1개의 indirect block, 그리고 1개의 doubly indirect block을 가지고 있다
+따라서 총 512 * 120 + 512 * 128 + 512 * 128 * 128 = 8515284
+즉 약 8.5MB의 크기를 가질 수 있다.
+
+---- SYNCHRONIZATION ----
+
+>> A3: Explain how your code avoids a race if two processes attempt to
+>> extend a file at the same time.
+각 inode는 readers writers lock을 가지고 있으며 항상 write operation은 mutually exclusive 하다.
+따라서 동시에 두 파일이 extend할 수 없으며 순서대로 파일 크기를 확장하게 된다.
+
+>> A4: Suppose processes A and B both have file F open, both
+>> positioned at end-of-file.  If A reads and B writes F at the same
+>> time, A may read all, part, or none of what B writes.  However, A
+>> may not read data other than what B writes, e.g. if B writes
+>> nonzero data, A is not allowed to see all zeros.  Explain how your
+>> code avoids this race.
+
+Read writer lock 을 통해 동기화 하였다. 쓰기 작업 중에는 read 가 수행 될 수 없으므로
+write이 다 된 이후에 읽게 되어 B가 쓴 것을 읽을 수 있으며, 그 반대의 경우는 read가 먼저 수행되므로
+B가 아직 쓰기 전이므로 읽지 않게 된다.
+
+>> A5: Explain how your synchronization design provides "fairness".
+>> File access is "fair" if readers cannot indefinitely block writers
+>> or vice versa.  That is, many processes reading from a file cannot
+>> prevent forever another process from writing the file, and many
+>> processes writing to a file cannot prevent another process forever
+>> from reading the file.
+
+read_write lock에서 write_first라는 변수를 추가하였다. 이는 read_unlock할 때에 기다리고 있는
+write 의 수 (w_wait)이 2 이상일 때 write_first 변수를 true로 바꾼다. 이 때에 read_lock을
+acquire하려는 프로세스는 block이 된다. 그리고 나서는 write lock을 먼저 획득하게 되고 unlock할 때
+write_first 를 false로 바꿔주어 read lock이 가능하도록 한다.
+
+---- RATIONALE ----
+
+>> A6: Is your inode structure a multilevel index?  If so, why did you
+>> choose this particular combination of direct, indirect, and doubly
+>> indirect blocks?  If not, why did you choose an alternative inode
+>> structure, and what advantages and disadvantages does your
+>> structure have, compared to a multilevel index?
+현재의 구현은 120개의 direct block과 1개의 indirect block, 1 개의 doubly indirect block
+이 있다. 일단 문서에 있는 조건인 8MB 크기의 파일을 만들기 위해서는 doubly indirect block은
+필수로 필요하다. 그리고 대 부분의 파일 크기는 작기 때문에 속도를 위해서 많은 수의 direct block을
+두었다.
+
+			    SUBDIRECTORIES
+			    ==============
+
+---- DATA STRUCTURES ----
+
+>> B1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+A1 참조.
+
+---- ALGORITHMS ----
+
+>> B2: Describe your code for traversing a user-specified path.  How
+>> do traversals of absolute and relative paths differ?
+
+dir_open_path를 통해 실제 파일 이름이 담겨 있을 디렉토리를 먼저 찾아서 이를 open한다.
+이 때 path를 tokenize해서 순서대로 lookup 하여 찾은 directory entry를 다시 open하는데
+마지막 파일 이름은 디렉토리가 아니므로 그 전 까지 directory를 열어 리턴한다.
+그 후 실제 파일 이름은 dir_parse_name을 통해 파싱하여 주었다.
+relative 및 absolute path는 path의 첫 번째 character를 보면 알 수 있다.
+따라서 path를 tokenize 하기 전에 path가 '/'로 시작하면 절대 경로, 그렇지 않으면 상대경로로
+인식하여 첫 번째는 dir_open_root 두 번째는 각 프로세스의 쓰레드에 저장되어 있는 cwd변수를
+참조하여 현재 working directory를 열어주었다.
+
+---- SYNCHRONIZATION ----
+
+>> B4: How do you prevent races on directory entries?  For example,
+>> only one of two simultaneous attempts to remove a single file
+>> should succeed, as should only one of two simultaneous attempts to
+>> create a file with the same name, and so on.
+
+Read write lock을 걸어주었으며 remove의 경우 write_lock을 걸기 때문에 동시에 삭제 하는
+것을 막을 수 있다.
+
+>> B5: Does your implementation allow a directory to be removed if it
+>> is open by a process or if it is in use as a process's current
+>> working directory?  If so, what happens to that process's future
+>> file system operations?  If not, how do you prevent it?
+
+프로세스가 디렉토리를 열고 있어도 삭제가 가능하도록 하였다. 대신에 directory관련 operation에서
+inode_is_removed 함수를 통해 이미 삭제가 되었는지를 확인하여 이미 삭제되었다면 그 디렉토리를
+open하거나 lookup하는것을 막도록 하였다.
+
+---- RATIONALE ----
+
+>> B6: Explain why you chose to represent the current directory of a
+>> process the way you did.
+
+처음 프로세스를 생성할 때에는 부모의 cwd를 상속하였는데, 그 디렉토리에 해당하는 inode number를
+기록하였다. 이는 dir_open을 하지 않으므로 리소스 절약 측면에서 도움이 된다.
+
+			     BUFFER CACHE
+			     ============
+
+---- DATA STRUCTURES ----
+
+>> C1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+A1 참조.
+
+---- ALGORITHMS ----
+
+>> C2: Describe how your cache replacement algorithm chooses a cache
+>> block to evict.
+
+LRU 정책을 사용하였다.
+
+>> C3: Describe your implementation of write-behind.
+
+write-behind를 담당하는 thread를 생성하여 주기적으로 cache_refresh함수를 실행하였다.
+이는 일정 시간동안 sleep을 한 뒤에 깨어나서 cache_refresh함수를 통해 dirty한 block을
+다시 디스크에 써주는 작업을 한다.
+
+>> C4: Describe your implementation of read-ahead.
+
+read_ahead_demon 쓰레드를 생성하여 read_ahead_list에 있는 ahead_entry를
+하나씩 읽어 read_ahead를 수행한다. list가 비어있을 때에는 condition variable을
+이용하여 cond_wait하고 있다가. inode_read에서 cache_read_ahead_append를
+호출하게 되면 cond_signal을 통해 ahead_demon을 깨워 read ahead를 수행하게 하였다.
+
+---- SYNCHRONIZATION ----
+
+>> C5: When one process is actively reading or writing data in a
+>> buffer cache block, how are other processes prevented from evicting
+>> that block?
+
+Active 하게 쓰이는 block은 LRU의 time stamp가 크기 때문에 evict 되지 않을 것이다.
+만약 evict된다고 하여도 rw_evict_lock을 통해 현재 active / wait중인 read write
+request가 모두 끝날 때 까지 기다리도록 하였다.
+
+>> C6: During the eviction of a block from the cache, how are other
+>> processes prevented from attempting to access the block?
+
+Cache block에 is_victim 변수가 있어 이 변수가 true일 때는 evict중이므로 접근하지
+않게 하였다.
+
+---- RATIONALE ----
+
+>> C7: Describe a file workload likely to benefit from buffer caching,
+>> and workloads likely to benefit from read-ahead and write-behind.
+
+buffer caching에 있어서는 locality가 좋은 work load에서 잇점을 갖는다. 이미  caching된
+데이터를 계속 해서 읽게 되면 속도 향상이 있을 것이다.
+비슷하게 read-ahead write-behind에서는 같은 file을 자주 읽는 것이 잇점을 갖는다.
+read ahead에서 다음 파일을 미리 caching하므로 그 파일을 게속 읽고 쓴다면 cache hit rate가
+올라갈 것이다.
+
+			   SURVEY QUESTIONS
+			   ================
+
+Answering these questions is optional, but it will help us improve the
+course in future quarters.  Feel free to tell us anything you
+want--these questions are just to spur your thoughts.  You may also
+choose to respond anonymously in the course evaluations at the end of
+the quarter.
+
+>> In your opinion, was this assignment, or any one of the three problems
+>> in it, too easy or too hard?  Did it take too long or too little time?
+
+>> Did you find that working on a particular part of the assignment gave
+>> you greater insight into some aspect of OS design?
+
+>> Is there some particular fact or hint we should give students in
+>> future quarters to help them solve the problems?  Conversely, did you
+>> find any of our guidance to be misleading?
+
+>> Do you have any suggestions for the TAs to more effectively assist
+>> students in future quarters?
+
+>> Any other comments?

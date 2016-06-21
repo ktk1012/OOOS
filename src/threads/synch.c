@@ -429,6 +429,7 @@ void rw_init (struct rw_lock *rw)
   cond_init (&rw->cond_write);
   cond_init (&rw->cond_evict);
   rw->is_evict = false;
+  rw->write_first = false;
   rw->r_wait = rw->r_active = 0;
   rw->w_wait = rw->w_active = 0;
 }
@@ -444,7 +445,7 @@ bool rw_rd_lock (struct rw_lock *rw)
   }
 
   ++rw->r_wait;
-  while (rw->w_active)
+  while (rw->w_active || rw->write_first)
     cond_wait (&rw->cond_read, &rw->lock);
   --rw->r_wait;
   ++rw->r_active;
@@ -465,6 +466,10 @@ bool rw_wr_lock (struct rw_lock *rw)
   }
 
   ++rw->w_wait;
+
+  if (rw->w_wait > 1)
+    rw->write_first = true;
+
   while (rw->w_active || rw->r_active)
     cond_wait (&rw->cond_write, &rw->lock);
 
@@ -493,6 +498,8 @@ void rw_rd_unlock (struct rw_lock *rw)
 //  printf ("rd_unlock\n");
 
   --rw->r_active;
+  if (rw->w_wait > 1)
+    rw->write_first = true;
 
   if (rw->r_active == 0 && rw->w_wait > 0)
     cond_signal (&rw->cond_write, &rw->lock);
@@ -511,6 +518,7 @@ void rw_wr_unlock (struct rw_lock *rw)
   --rw->w_active;
 
   ASSERT (rw->w_active == 0);
+  rw->write_first = false;
 
   if (rw->w_wait)
     cond_signal (&rw->cond_write, &rw->lock);

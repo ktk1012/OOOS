@@ -27,6 +27,7 @@ filesys_init (bool format)
 
   inode_init ();
   free_map_init ();
+  /* Initialize cache */
   cache_init ();
 
   if (format) 
@@ -41,6 +42,7 @@ void
 filesys_done (void) 
 {
   free_map_close ();
+  /* Clear cache */
   cache_done ();
 }
 
@@ -52,6 +54,7 @@ bool
 filesys_create (const char *name, off_t initial_size, bool is_dir)
 {
   disk_sector_t inode_sector = 0;
+  /* Open file's containing directory and its file name */
   struct dir *dir = dir_open_path (name);
   char *file_name = dir_parse_name (name);
   bool success = false;
@@ -72,6 +75,7 @@ filesys_create (const char *name, off_t initial_size, bool is_dir)
   }
 
   disk_sector_t parent_sector = 0;
+  /* If create is directory, remember the patent's inode number */
   if (is_dir)
     parent_sector = inode_get_inumber (dir->inode);
 

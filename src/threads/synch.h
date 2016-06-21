@@ -53,15 +53,17 @@ bool cond_less_sema_priority (const struct list_elem* e1,
                               void* AUX UNUSED);
 
 
+/* Lock for reader & writer */
 struct rw_lock
 {
-  struct condition cond_read;
-  struct condition cond_write;
-  struct condition cond_evict;
-  bool is_evict;
-  int r_wait, r_active;
-  int w_wait, w_active;
-  struct lock lock;
+  struct condition cond_read;   /* Condition for readers */
+  struct condition cond_write;  /* Condition for writers */
+  struct condition cond_evict;  /* Condition for eviction */
+  bool is_evict;                /* Is it to evicted or not ?? */
+  bool write_first;             /* Is write is prefered or not? */
+  int r_wait, r_active;         /* Read waiters cnt and read active cnt */
+  int w_wait, w_active;         /* Write waiters cnt and write active cnt */
+  struct lock lock;             /* Lock for mutual exclusion */
 };
 
 void rw_init (struct rw_lock *);
